@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
 import { AnalysisResult, TimelineEntry, TribeTimestep } from "@/lib/types";
 import tribeData from "@/data/tribe_output.json";
+
+const BrainViewer = lazy(() => import("./BrainViewer"));
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -629,7 +631,7 @@ function ResultsView({
       <div className="flex flex-1 overflow-hidden" style={{ minHeight: 0 }}>
         {/* Left: Video */}
         <div
-          className="flex flex-col p-4 border-r"
+          className="flex flex-col p-4 border-r overflow-y-auto"
           style={{ width: "55%", borderColor: "rgba(0,212,255,0.08)" }}
         >
           <video
@@ -638,7 +640,7 @@ function ResultsView({
             controls
             className="w-full rounded-md"
             style={{
-              flex: 1,
+              maxHeight: "35vh",
               minHeight: 0,
               background: "#000",
               border: "1px solid rgba(0,212,255,0.1)",
@@ -648,12 +650,20 @@ function ResultsView({
             onLoadedMetadata={(e) => setDuration((e.target as HTMLVideoElement).duration)}
           />
 
-          {/* Brain Activity */}
+          {/* 3D Brain Activity */}
           <div className="mt-3 flex-shrink-0">
             <p className="text-xs text-slate-500 tracking-widest uppercase mb-2">
-              Brain Activity Model
+              Cortical Activation Model
             </p>
-            <BrainActivityBars tribeTimestep={tribeTimestep} />
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center" style={{ height: "300px" }}>
+                  <span className="text-xs tracking-widest text-slate-700">LOADING 3D MODEL...</span>
+                </div>
+              }
+            >
+              <BrainViewer currentTime={currentTime} duration={duration} />
+            </Suspense>
           </div>
         </div>
 
