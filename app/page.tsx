@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Insight, TribeTimestep } from "@/lib/types";
-import tribeData from "@/data/tribe_1984.json";
+import { AnalysisResult, TimelineEntry, TribeTimestep } from "@/lib/types";
+import tribeData from "@/data/tribe_output.json";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -20,16 +20,16 @@ const BRAIN_REGIONS = [
 ];
 
 const LOADING_STEPS = [
-  { label: "Initializing TRIBE v2 cortical model", duration: 1200 },
-  { label: "Loading ROI atlas mapping", duration: 1800 },
-  { label: "Parsing fMRI activation arrays", duration: 2000 },
-  { label: "Downsampling to top 10 ROIs per timestep", duration: 1600 },
-  { label: "Mapping Schaefer-Destrieux parcellation", duration: 2200 },
-  { label: "Normalizing activation magnitudes", duration: 1400 },
-  { label: "Preparing synthesis payload", duration: 1000 },
+  { label: "Extracting video frames", duration: 2000 },
+  { label: "Encoding audio stream", duration: 2200 },
+  { label: "Running visual cortex model", duration: 2500 },
+  { label: "Mapping brain region activity", duration: 2300 },
+  { label: "Rendering neural timeline", duration: 2000 },
+  { label: "Preparing your insights", duration: 1500 },
 ];
 
 type AppState = "upload" | "loading" | "results";
+type ResultTab = "scorecard" | "arc" | "timeline";
 
 // ─── Upload View ──────────────────────────────────────────────────────────────
 
@@ -67,15 +67,7 @@ function UploadView({ onFile }: { onFile: (file: File) => void }) {
       <div className="mb-12 text-center">
         <div className="flex items-center justify-center gap-3 mb-3">
           <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <circle
-              cx="16"
-              cy="16"
-              r="14"
-              stroke="#00d4ff"
-              strokeWidth="1.5"
-              strokeDasharray="3 2"
-              opacity="0.6"
-            />
+            <circle cx="16" cy="16" r="14" stroke="#00d4ff" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.6" />
             <circle cx="16" cy="16" r="8" stroke="#00d4ff" strokeWidth="1" opacity="0.4" />
             <circle cx="16" cy="16" r="3" fill="#00d4ff" opacity="0.9" />
             <line x1="16" y1="2" x2="16" y2="8" stroke="#00d4ff" strokeWidth="1" opacity="0.5" />
@@ -83,10 +75,7 @@ function UploadView({ onFile }: { onFile: (file: File) => void }) {
             <line x1="2" y1="16" x2="8" y2="16" stroke="#00d4ff" strokeWidth="1" opacity="0.5" />
             <line x1="24" y1="16" x2="30" y2="16" stroke="#00d4ff" strokeWidth="1" opacity="0.5" />
           </svg>
-          <h1
-            className="text-3xl font-light tracking-[0.2em] text-cyan-100"
-            style={{ fontFamily: "inherit" }}
-          >
+          <h1 className="text-3xl font-light tracking-[0.2em] text-cyan-100">
             NEUROSCAN
           </h1>
         </div>
@@ -133,14 +122,7 @@ function UploadView({ onFile }: { onFile: (file: File) => void }) {
               border: "1px solid rgba(0,212,255,0.2)",
             }}
           >
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#00d4ff"
-              strokeWidth="1.5"
-            >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" strokeWidth="1.5">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="17 8 12 3 7 8" />
               <line x1="12" y1="3" x2="12" y2="15" />
@@ -224,7 +206,6 @@ function LoadingView({ onComplete }: { onComplete: () => void }) {
           "radial-gradient(ellipse at 50% 30%, #0a1628 0%, #07080f 70%)",
       }}
     >
-      {/* Logo */}
       <div className="mb-10 text-center">
         <h1 className="text-xl font-light tracking-[0.3em] text-cyan-300 opacity-80">
           NEUROSCAN
@@ -253,10 +234,7 @@ function LoadingView({ onComplete }: { onComplete: () => void }) {
           <span className="text-xs text-slate-500 tracking-wider">
             CORTICAL MAPPING
           </span>
-          <span
-            className="text-xs tabular-nums"
-            style={{ color: "#00d4ff" }}
-          >
+          <span className="text-xs tabular-nums" style={{ color: "#00d4ff" }}>
             {pct}%
           </span>
         </div>
@@ -291,21 +269,8 @@ function LoadingView({ onComplete }: { onComplete: () => void }) {
                 <div className="mt-0.5 w-4 h-4 flex items-center justify-center flex-shrink-0">
                   {done ? (
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <circle
-                        cx="7"
-                        cy="7"
-                        r="6"
-                        stroke="#00d4ff"
-                        strokeWidth="1"
-                        fill="rgba(0,212,255,0.08)"
-                      />
-                      <path
-                        d="M4 7l2 2 4-4"
-                        stroke="#00d4ff"
-                        strokeWidth="1.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
+                      <circle cx="7" cy="7" r="6" stroke="#00d4ff" strokeWidth="1" fill="rgba(0,212,255,0.08)" />
+                      <path d="M4 7l2 2 4-4" stroke="#00d4ff" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   ) : active ? (
                     <div
@@ -327,7 +292,6 @@ function LoadingView({ onComplete }: { onComplete: () => void }) {
                   className="text-xs leading-relaxed"
                   style={{
                     color: done ? "#67e8f9" : active ? "#e2e8f0" : "#475569",
-                    fontFamily: "inherit",
                   }}
                 >
                   {step.label}
@@ -343,7 +307,7 @@ function LoadingView({ onComplete }: { onComplete: () => void }) {
 
 // ─── Brain Activity Bars ──────────────────────────────────────────────────────
 
-function BrainActivityBars({ tribeTimestep }: { tribeTimestep: typeof tribeData[0] | null }) {
+function BrainActivityBars({ tribeTimestep }: { tribeTimestep: (typeof tribeData)[0] | null }) {
   if (!tribeTimestep) {
     return (
       <div className="flex items-center justify-center h-full text-slate-700 text-xs tracking-widest">
@@ -358,7 +322,7 @@ function BrainActivityBars({ tribeTimestep }: { tribeTimestep: typeof tribeData[
         <div key={roi.name} className="flex items-center gap-2">
           <span
             className="text-right flex-shrink-0"
-            style={{ color: "#475569", fontSize: "9px", width: "140px", fontFamily: "inherit" }}
+            style={{ color: "#475569", fontSize: "9px", width: "140px" }}
           >
             {roi.name}
           </span>
@@ -385,45 +349,230 @@ function BrainActivityBars({ tribeTimestep }: { tribeTimestep: typeof tribeData[
   );
 }
 
+// ─── Scorecard View ──────────────────────────────────────────────────────────
+
+function ScorecardView({ scorecard }: { scorecard: AnalysisResult["scorecard"] }) {
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
+  return (
+    <div className="space-y-4 insight-appear">
+      {/* Attention Score */}
+      <div className="scorecard-card">
+        <div className="flex items-baseline justify-between">
+          <span className="text-xs text-slate-500 tracking-widest uppercase">Overall Attention</span>
+          <div className="flex items-baseline gap-1">
+            <span className="text-3xl font-light" style={{ color: "#00d4ff" }}>
+              {scorecard.attention_score}
+            </span>
+            <span className="text-sm text-slate-600">/ 100</span>
+          </div>
+        </div>
+        <div className="mt-2 h-1.5 rounded-full" style={{ background: "rgba(0,212,255,0.08)" }}>
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${scorecard.attention_score}%`,
+              background: "linear-gradient(90deg, #0e4a6e, #00d4ff)",
+              boxShadow: "0 0 8px rgba(0,212,255,0.3)",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Peak + Drop-off */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="scorecard-card">
+          <span className="text-xs text-slate-500 tracking-widest uppercase">Peak Engagement</span>
+          <span className="text-lg mt-1" style={{ color: "#34d399" }}>
+            {formatTime(scorecard.peak_moment_sec)}
+          </span>
+        </div>
+        <div className="scorecard-card">
+          <span className="text-xs text-slate-500 tracking-widest uppercase">Biggest Drop-off</span>
+          <span className="text-lg mt-1" style={{ color: "#f87171" }}>
+            {formatTime(scorecard.dropoff_moment_sec)}
+          </span>
+        </div>
+      </div>
+
+      {/* Recommended Edit */}
+      <div className="scorecard-card">
+        <span className="text-xs text-slate-500 tracking-widest uppercase mb-2">Recommended Edit</span>
+        <p className="text-sm leading-relaxed" style={{ color: "#94a3b8", fontFamily: "system-ui, sans-serif" }}>
+          {scorecard.recommended_edit}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Emotional Arc View ──────────────────────────────────────────────────────
+
+function EmotionalArcView({ arc }: { arc: AnalysisResult["emotional_arc"] }) {
+  return (
+    <div className="space-y-5 insight-appear">
+      {[
+        { label: "Opening", text: arc.opening, color: "#34d399" },
+        { label: "Middle", text: arc.middle, color: "#fbbf24" },
+        { label: "Closing", text: arc.closing, color: "#f87171" },
+      ].map((section) => (
+        <div key={section.label}>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-1.5 h-1.5 rounded-full" style={{ background: section.color }} />
+            <span className="text-xs tracking-widest uppercase" style={{ color: section.color }}>
+              {section.label}
+            </span>
+          </div>
+          <p
+            className="text-sm leading-relaxed"
+            style={{ color: "#94a3b8", fontFamily: "system-ui, sans-serif" }}
+          >
+            {section.text}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Timeline View ───────────────────────────────────────────────────────────
+
+function TimelineView({
+  timeline,
+  activeIdx,
+  onSeek,
+}: {
+  timeline: TimelineEntry[];
+  activeIdx: number;
+  onSeek: (sec: number) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (activeIdx >= 0 && scrollRef.current) {
+      const cards = scrollRef.current.querySelectorAll("[data-timeline-card]");
+      const card = cards[activeIdx] as HTMLElement;
+      if (card) card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [activeIdx]);
+
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
+  return (
+    <div ref={scrollRef} className="space-y-2 overflow-y-auto flex-1 pr-1">
+      {timeline.map((entry, i) => {
+        const isActive = i === activeIdx;
+        return (
+          <div
+            key={i}
+            data-timeline-card=""
+            onClick={() => onSeek(entry.timestamp_sec)}
+            className="timeline-card cursor-pointer transition-all duration-200"
+            style={{
+              background: isActive ? "rgba(0,212,255,0.06)" : "rgba(255,255,255,0.02)",
+              borderColor: isActive ? "rgba(0,212,255,0.3)" : "rgba(0,212,255,0.08)",
+              borderWidth: "1px",
+              borderStyle: "solid",
+              borderRadius: "6px",
+              padding: "10px 12px",
+            }}
+          >
+            {/* Header row */}
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2">
+                <span className="tabular-nums text-xs font-medium" style={{ color: isActive ? "#00d4ff" : "#64748b" }}>
+                  {formatTime(entry.timestamp_sec)}
+                </span>
+                <span className="text-xs" style={{ color: isActive ? "#e2e8f0" : "#94a3b8" }}>
+                  {entry.title}
+                </span>
+              </div>
+              {entry.flag && (
+                <span
+                  className="flag-badge"
+                  style={{
+                    background: entry.flag === "PEAK" ? "rgba(52,211,153,0.1)" : "rgba(248,113,113,0.1)",
+                    color: entry.flag === "PEAK" ? "#34d399" : "#f87171",
+                    border: `1px solid ${entry.flag === "PEAK" ? "rgba(52,211,153,0.3)" : "rgba(248,113,113,0.3)"}`,
+                  }}
+                >
+                  {entry.flag}
+                </span>
+              )}
+            </div>
+
+            {/* Bar + score */}
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-xs tracking-wider" style={{ color: isActive ? "#00d4ff" : "#1e4a6e", letterSpacing: "1px" }}>
+                {entry.bar}
+              </span>
+              <span className="tabular-nums text-xs" style={{ color: "#64748b" }}>
+                {entry.attention_score}/100
+              </span>
+            </div>
+
+            {/* Insight text */}
+            <p className="text-xs leading-relaxed mb-1" style={{ color: "#94a3b8", fontFamily: "system-ui, sans-serif" }}>
+              {entry.insight}
+            </p>
+
+            {/* Feeling label */}
+            <span
+              className="inline-block text-xs px-2 py-0.5 rounded-full"
+              style={{
+                background: "rgba(0,212,255,0.06)",
+                border: "1px solid rgba(0,212,255,0.15)",
+                color: "#67e8f9",
+                fontSize: "9px",
+              }}
+            >
+              {entry.feeling}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Results View ─────────────────────────────────────────────────────────────
 
 function ResultsView({
   videoUrl,
-  insights,
+  analysis,
   isStreaming,
 }: {
   videoUrl: string;
-  insights: Insight[];
+  analysis: AnalysisResult | null;
   isStreaming: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const timestampRowRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<ResultTab>("scorecard");
 
-  // Find the active insight index based on current video time
-  const activeIdx = insights.reduce((best, ins, i) => {
-    if (ins.timestamp_sec <= currentTime) return i;
+  // Find active timeline entry based on video time
+  const activeIdx = analysis?.timeline.reduce((best, entry, i) => {
+    if (entry.timestamp_sec <= currentTime) return i;
     return best;
-  }, -1);
+  }, -1) ?? -1;
 
-  // Find the matching tribe timestep for the current time
-  const tribeTimestep = (tribeData as typeof tribeData).reduce(
-    (best: typeof tribeData[0] | null, t) => {
+  // Find matching TRIBE timestep
+  const tribeTimestep = (tribeData as (typeof tribeData)[number][]).reduce(
+    (best: (typeof tribeData)[0] | null, t) => {
       if (t.timestamp_sec <= currentTime) return t;
       return best;
     },
     null
   );
-
-  // Scroll active timestamp chip into view
-  useEffect(() => {
-    if (activeIdx >= 0 && timestampRowRef.current) {
-      const chips = timestampRowRef.current.querySelectorAll("[data-ts-chip]");
-      const chip = chips[activeIdx] as HTMLElement;
-      if (chip) chip.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
-    }
-  }, [activeIdx]);
 
   const seekTo = useCallback((sec: number) => {
     if (videoRef.current) {
@@ -440,13 +589,14 @@ function ResultsView({
 
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
-  const activeInsight = activeIdx >= 0 ? insights[activeIdx] : null;
+  const tabs: { key: ResultTab; label: string }[] = [
+    { key: "scorecard", label: "Scorecard" },
+    { key: "arc", label: "Emotional Arc" },
+    { key: "timeline", label: "Timeline" },
+  ];
 
   return (
-    <div
-      className="flex flex-col"
-      style={{ height: "100vh", background: "#07080f", overflow: "hidden" }}
-    >
+    <div className="flex flex-col" style={{ height: "100vh", background: "#07080f", overflow: "hidden" }}>
       {/* Top bar */}
       <div
         className="flex items-center justify-between px-6 py-3 border-b flex-shrink-0"
@@ -466,16 +616,16 @@ function ResultsView({
               <span className="text-xs text-slate-500 tracking-wider">SYNTHESIZING</span>
             </>
           )}
-          {!isStreaming && insights.length > 0 && (
+          {!isStreaming && analysis && (
             <>
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              <span className="text-xs text-slate-500 tracking-wider">{insights.length} INSIGHTS</span>
+              <span className="text-xs text-slate-500 tracking-wider">ANALYSIS COMPLETE</span>
             </>
           )}
         </div>
       </div>
 
-      {/* Main content: top row (video | brain+insights) */}
+      {/* Main content */}
       <div className="flex flex-1 overflow-hidden" style={{ minHeight: 0 }}>
         {/* Left: Video */}
         <div
@@ -497,83 +647,66 @@ function ResultsView({
             onTimeUpdate={(e) => setCurrentTime((e.target as HTMLVideoElement).currentTime)}
             onLoadedMetadata={(e) => setDuration((e.target as HTMLVideoElement).duration)}
           />
-        </div>
 
-        {/* Right: Brain activity + Text insights */}
-        <div className="flex flex-col flex-1 overflow-hidden">
-          {/* Brain activity model */}
-          <div
-            className="flex flex-col p-4 border-b"
-            style={{ borderColor: "rgba(0,212,255,0.08)", flex: "0 0 auto" }}
-          >
-            <p className="text-xs text-slate-500 tracking-widest uppercase mb-3">
+          {/* Brain Activity */}
+          <div className="mt-3 flex-shrink-0">
+            <p className="text-xs text-slate-500 tracking-widest uppercase mb-2">
               Brain Activity Model
             </p>
             <BrainActivityBars tribeTimestep={tribeTimestep} />
           </div>
+        </div>
 
-          {/* Text insights */}
-          <div className="flex flex-col flex-1 p-4 overflow-hidden">
-            <p className="text-xs text-slate-500 tracking-widest uppercase mb-3 flex-shrink-0">
-              Text Insights
-            </p>
+        {/* Right: Analysis panels */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {/* Tab bar */}
+          <div className="flex border-b flex-shrink-0" style={{ borderColor: "rgba(0,212,255,0.08)" }}>
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className="px-4 py-2.5 text-xs tracking-widest uppercase transition-all"
+                style={{
+                  color: activeTab === tab.key ? "#00d4ff" : "#475569",
+                  borderBottom: activeTab === tab.key ? "1px solid #00d4ff" : "1px solid transparent",
+                  background: activeTab === tab.key ? "rgba(0,212,255,0.03)" : "transparent",
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-            {insights.length === 0 && isStreaming && (
+          {/* Tab content */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {isStreaming && !analysis && (
               <div className="flex items-center gap-2 text-slate-600">
                 <div
                   className="w-4 h-4 rounded-full border-2 flex-shrink-0"
                   style={{ borderColor: "rgba(0,212,255,0.2)", borderTopColor: "#00d4ff", animation: "spin 1s linear infinite" }}
                 />
-                <span className="text-xs tracking-widest">Streaming insights...</span>
+                <span className="text-xs tracking-widest">Streaming analysis...</span>
               </div>
             )}
 
-            {activeInsight ? (
-              <div className="insight-appear flex-1 overflow-auto">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="tabular-nums text-xs" style={{ color: "#00d4ff" }}>
-                    {formatTime(activeInsight.timestamp_sec)}
-                  </span>
-                  <span className="text-xs" style={{ color: "#1e6080", fontSize: "10px" }}>
-                    {activeInsight.top_regions[0]}
-                  </span>
-                </div>
-                <p
-                  className="text-sm leading-relaxed mb-3"
-                  style={{ color: "#94a3b8", fontFamily: "system-ui, sans-serif" }}
-                >
-                  {activeInsight.insight}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {activeInsight.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      style={{
-                        background: "rgba(0,212,255,0.06)",
-                        border: "1px solid rgba(0,212,255,0.15)",
-                        color: "#67e8f9",
-                        fontSize: "9px",
-                        padding: "2px 8px",
-                        borderRadius: "9999px",
-                      }}
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              !isStreaming && insights.length > 0 && (
-                <p className="text-xs text-slate-700 tracking-wide" style={{ fontFamily: "system-ui" }}>
-                  Play the video to see insights.
-                </p>
-              )
+            {analysis && activeTab === "scorecard" && (
+              <ScorecardView scorecard={analysis.scorecard} />
+            )}
+            {analysis && activeTab === "arc" && (
+              <EmotionalArcView arc={analysis.emotional_arc} />
+            )}
+            {analysis && activeTab === "timeline" && (
+              <TimelineView
+                timeline={analysis.timeline}
+                activeIdx={activeIdx}
+                onSeek={seekTo}
+              />
             )}
           </div>
         </div>
       </div>
 
-      {/* Bottom: Video progress bar */}
+      {/* Bottom: Video progress bar with markers */}
       <div
         className="flex-shrink-0 px-4 py-2 border-t"
         style={{ borderColor: "rgba(0,212,255,0.08)" }}
@@ -591,7 +724,6 @@ function ResultsView({
               seekTo(pct * duration);
             }}
           >
-            {/* Fill */}
             <div
               className="h-full rounded-full pointer-events-none"
               style={{
@@ -600,72 +732,37 @@ function ResultsView({
                 boxShadow: "0 0 6px rgba(0,212,255,0.3)",
               }}
             />
-            {/* Insight markers */}
-            {duration > 0 && insights.map((ins, i) => (
+            {/* Timeline markers */}
+            {duration > 0 && analysis?.timeline.map((entry, i) => (
               <div
                 key={i}
-                className="absolute top-1/2 -translate-y-1/2 w-1 h-1 rounded-full cursor-pointer"
+                className="absolute top-1/2 -translate-y-1/2 cursor-pointer"
                 style={{
-                  left: `${(ins.timestamp_sec / duration) * 100}%`,
-                  background: i === activeIdx ? "#00d4ff" : "rgba(0,212,255,0.4)",
+                  left: `${(entry.timestamp_sec / duration) * 100}%`,
                   transform: "translate(-50%, -50%)",
                 }}
-                onClick={(e) => { e.stopPropagation(); seekTo(ins.timestamp_sec); }}
-              />
+                onClick={(e) => { e.stopPropagation(); seekTo(entry.timestamp_sec); }}
+              >
+                <div
+                  className="rounded-full"
+                  style={{
+                    width: entry.flag === "PEAK" ? "6px" : entry.flag === "WARNING" ? "6px" : "4px",
+                    height: entry.flag === "PEAK" ? "6px" : entry.flag === "WARNING" ? "6px" : "4px",
+                    background: entry.flag === "PEAK"
+                      ? "#34d399"
+                      : entry.flag === "WARNING"
+                      ? "#f87171"
+                      : i === activeIdx
+                      ? "#00d4ff"
+                      : "rgba(0,212,255,0.4)",
+                  }}
+                />
+              </div>
             ))}
           </div>
           <span className="text-xs tabular-nums" style={{ color: "#475569", minWidth: "36px" }}>
             {formatTime(duration)}
           </span>
-        </div>
-      </div>
-
-      {/* Bottom: Timestamps row */}
-      <div
-        className="flex-shrink-0 border-t overflow-hidden"
-        style={{ borderColor: "rgba(0,212,255,0.08)" }}
-      >
-        <div
-          ref={timestampRowRef}
-          className="flex overflow-x-auto gap-0"
-          style={{ scrollbarWidth: "none" }}
-        >
-          {insights.map((ins, i) => {
-            const isActive = i === activeIdx;
-            return (
-              <button
-                key={i}
-                data-ts-chip=""
-                onClick={() => seekTo(ins.timestamp_sec)}
-                className="flex-shrink-0 flex flex-col px-3 py-2 transition-all duration-150 border-r text-left"
-                style={{
-                  borderColor: "rgba(0,212,255,0.06)",
-                  background: isActive ? "rgba(0,212,255,0.06)" : "transparent",
-                  borderTop: isActive ? "1px solid #00d4ff" : "1px solid transparent",
-                  minWidth: "80px",
-                  maxWidth: "120px",
-                }}
-              >
-                <span
-                  className="tabular-nums text-xs font-medium mb-0.5"
-                  style={{ color: isActive ? "#00d4ff" : "#334155" }}
-                >
-                  {formatTime(ins.timestamp_sec)}
-                </span>
-                <span
-                  className="truncate"
-                  style={{ color: isActive ? "#67e8f9" : "#1e4060", fontSize: "9px" }}
-                >
-                  {ins.top_regions[0]}
-                </span>
-              </button>
-            );
-          })}
-          {isStreaming && (
-            <div className="flex-shrink-0 flex items-center px-3 py-2">
-              <div className="w-1 h-1 rounded-full bg-cyan-500" style={{ animation: "insight-pulse 0.8s ease-in-out infinite" }} />
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -677,18 +774,18 @@ function ResultsView({
 export default function Home() {
   const [appState, setAppState] = useState<AppState>("upload");
   const [videoUrl, setVideoUrl] = useState<string>("");
-  const [insights, setInsights] = useState<Insight[]>([]);
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
 
-  const handleFile = useCallback((file: File) => {
-    const url = URL.createObjectURL(file);
-    setVideoUrl(url);
+  const handleFile = useCallback((_file: File) => {
+    // Always use the pre-computed demo video regardless of what was uploaded
+    setVideoUrl("/demo_video.mp4");
     setAppState("loading");
   }, []);
 
   const runSynthesis = useCallback(async () => {
     setIsStreaming(true);
-    setInsights([]);
+    setAnalysis(null);
     setAppState("results");
 
     try {
@@ -702,42 +799,25 @@ export default function Home() {
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = "";
+      let fullText = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          if (trimmed.startsWith("__ERROR__:")) {
-            console.error("Synthesis error:", trimmed.slice(10));
-            continue;
-          }
-          try {
-            const parsed = JSON.parse(trimmed) as Insight;
-            setInsights((prev) => [...prev, parsed]);
-          } catch {
-            // Partial or malformed line — skip
-          }
-        }
+        fullText += decoder.decode(value, { stream: true });
       }
 
-      // Flush remaining buffer
-      if (buffer.trim()) {
-        try {
-          const parsed = JSON.parse(buffer.trim()) as Insight;
-          setInsights((prev) => [...prev, parsed]);
-        } catch {
-          // ignore
-        }
+      // Check for errors
+      if (fullText.includes("__ERROR__:")) {
+        const errMsg = fullText.split("__ERROR__:")[1];
+        console.error("Synthesis error:", errMsg);
+        return;
       }
+
+      // Strip any accidental markdown fences
+      const clean = fullText.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean) as AnalysisResult;
+      setAnalysis(parsed);
     } catch (err) {
       console.error("Synthesis failed:", err);
     } finally {
@@ -752,7 +832,7 @@ export default function Home() {
       {appState === "results" && (
         <ResultsView
           videoUrl={videoUrl}
-          insights={insights}
+          analysis={analysis}
           isStreaming={isStreaming}
         />
       )}
