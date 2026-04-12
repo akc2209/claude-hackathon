@@ -1,6 +1,6 @@
 # Grey Matter
 
-Externalized brain activity for advertising intelligence.
+Predicting how your brain responds to content-- more accurately than actual brain scans.
 
 ## Background
 
