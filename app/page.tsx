@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
 import { AnalysisResult, TimelineEntry, TribeTimestep } from "@/lib/types";
 import tribeData from "@/data/tribe_output.json";
+
+const BrainViewer = lazy(() => import("./BrainViewer"));
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -915,6 +917,7 @@ function ResultsView({
             flexDirection: "column",
             padding: "16px",
             borderRight: `1px solid ${C.borderHair}`,
+            overflowY: "auto",
           }}
         >
           <video
@@ -923,7 +926,7 @@ function ResultsView({
             controls
             style={{
               width: "100%",
-              flex: 1,
+              maxHeight: "35vh",
               minHeight: 0,
               background: "#000",
               border: `1px solid ${C.borderHair}`,
@@ -943,9 +946,17 @@ function ResultsView({
                 margin: "0 0 8px 0",
               }}
             >
-              BRAIN ACTIVITY MODEL
+              CORTICAL ACTIVATION MODEL
             </p>
-            <BrainActivityBars tribeTimestep={tribeTimestep} />
+            <Suspense
+              fallback={
+                <div style={{ height: "300px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ fontFamily: FONT_MONO, fontSize: "10px", letterSpacing: "0.12em", color: C.textTertiary }}>LOADING 3D MODEL...</span>
+                </div>
+              }
+            >
+              <BrainViewer currentTime={currentTime} duration={duration} />
+            </Suspense>
           </div>
         </div>
 

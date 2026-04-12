@@ -1,5 +1,31 @@
 {
+  "name": "neuroscan",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.104"
+    "@anthropic-ai/claude-agent-sdk": "^0.2.104",
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@react-three/drei": "^9.92.7",
+    "@react-three/fiber": "^8.15.12",
+    "autoprefixer": "^10.4.27",
+    "next": "^14.2.35",
+    "postcss": "^8.5.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
+    "@types/three": "^0.160.0",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5"
   }
 }
