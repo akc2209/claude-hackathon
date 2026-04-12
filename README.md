@@ -21,12 +21,6 @@ A narrative of the emotional journey — where the viewer locks in, where moment
 **Layer 3 — Timestep Timeline** (for content creators)
 Second-by-second breakdown with engagement scores, labeled moments (spikes, coasting, drop-offs, recoveries), and plain-language feeling tags at each timestep. Answers: *which exact moment worked, and why?*
 
-## Getting Started
-
-```bash
-npm install
-```
-
 ## Tech Stack
 
 - **Language:** TypeScript
@@ -34,4 +28,3 @@ npm install
 - **Styling:** Tailwind CSS
 - **AI:** Anthropic Claude API (Claude Sonnet 4), Claude Agent SDK
 - **Neuroscience Model:** [Meta TRIBE V2](https://aidemos.atmeta.com/tribev2)
-- **Deployment:** Vercel
