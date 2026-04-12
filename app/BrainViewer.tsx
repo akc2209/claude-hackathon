@@ -4,6 +4,7 @@ import { useRef, useMemo, useState, useEffect, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
+import { TribeTimestep } from "@/lib/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,14 +21,14 @@ interface BrainMeta {
 // fsaverage5 vertex-to-region mapping (approximate, per hemisphere = 10242 vertices)
 // Based on standard cortical parcellation vertex ranges
 const CORTICAL_REGIONS = [
-  { name: "Visual Cortex", startPct: 0, endPct: 0.12, description: "processing visual input" },
-  { name: "Parietal Lobe", startPct: 0.12, endPct: 0.24, description: "spatial awareness & attention" },
-  { name: "Motor Cortex", startPct: 0.24, endPct: 0.34, description: "movement & action planning" },
-  { name: "Prefrontal Cortex", startPct: 0.34, endPct: 0.50, description: "decision-making & focus" },
-  { name: "Temporal Lobe", startPct: 0.50, endPct: 0.65, description: "language & memory" },
-  { name: "Fusiform Gyrus", startPct: 0.65, endPct: 0.75, description: "face & object recognition" },
-  { name: "Cingulate Cortex", startPct: 0.75, endPct: 0.85, description: "emotion & conflict monitoring" },
-  { name: "Insular Cortex", startPct: 0.85, endPct: 1.0, description: "interoception & salience" },
+  { name: "Visual Cortex", startPct: 0, endPct: 0.12, description: "processing visual input", roiNames: ["V1", "V2", "V4"] },
+  { name: "Parietal Lobe", startPct: 0.12, endPct: 0.24, description: "spatial awareness & attention", roiNames: ["posterior parietal cortex"] },
+  { name: "Motor Cortex", startPct: 0.24, endPct: 0.34, description: "movement & action planning", roiNames: [] },
+  { name: "Prefrontal Cortex", startPct: 0.34, endPct: 0.50, description: "decision-making & focus", roiNames: ["prefrontal cortex", "orbitofrontal cortex"] },
+  { name: "Temporal Lobe", startPct: 0.50, endPct: 0.65, description: "language & memory", roiNames: ["superior temporal sulcus", "inferotemporal cortex"] },
+  { name: "Fusiform Gyrus", startPct: 0.65, endPct: 0.75, description: "face & object recognition", roiNames: ["fusiform gyrus"] },
+  { name: "Cingulate Cortex", startPct: 0.75, endPct: 0.85, description: "emotion & conflict monitoring", roiNames: ["anterior cingulate cortex"] },
+  { name: "Insular Cortex", startPct: 0.85, endPct: 1.0, description: "interoception & salience", roiNames: [] },
 ];
 
 interface TimestepStats {
@@ -47,6 +48,72 @@ interface BrainData {
   activations: Float32Array[];
   meta: BrainMeta;
   stats: TimestepStats[];
+}
+
+// ─── Generate per-vertex activations from TRIBE ROI data ─────────────────────
+
+function generateActivationsFromTribe(
+  tribeData: TribeTimestep[],
+  numVertices: number
+): { activations: Float32Array[]; activationMin: number; activationMax: number } {
+  const hemiSize = Math.floor(numVertices / 2);
+  let globalMin = Infinity;
+  let globalMax = -Infinity;
+
+  const activations = tribeData.map((timestep) => {
+    const perVertex = new Float32Array(numVertices);
+
+    // Build a lookup from ROI name → activation value
+    const roiMap = new Map<string, number>();
+    for (const roi of timestep.rois) {
+      roiMap.set(roi.name.toLowerCase(), roi.activation);
+    }
+
+    // For each cortical region, find matching TRIBE ROIs and assign to vertices
+    for (const region of CORTICAL_REGIONS) {
+      // Average activation from all matching ROIs for this region
+      let regionActivation = 0;
+      let matchCount = 0;
+      for (const roiName of region.roiNames) {
+        const val = roiMap.get(roiName.toLowerCase());
+        if (val !== undefined) {
+          regionActivation += val;
+          matchCount++;
+        }
+      }
+      if (matchCount > 0) {
+        regionActivation /= matchCount;
+      }
+      // If no matching ROIs, this region stays at 0 (inactive)
+
+      // Assign to vertices in both hemispheres with spatial smoothing noise
+      const lStart = Math.floor(region.startPct * hemiSize);
+      const lEnd = Math.floor(region.endPct * hemiSize);
+      for (let i = lStart; i < lEnd; i++) {
+        // Add slight spatial variation so it doesn't look like flat blocks
+        const edgeDist = Math.min(i - lStart, lEnd - 1 - i) / Math.max(1, (lEnd - lStart) * 0.15);
+        const falloff = Math.min(1, edgeDist); // smooth edges between regions
+        const noise = 0.85 + 0.3 * Math.sin(i * 0.7) * Math.cos(i * 0.3); // deterministic noise
+        const val = regionActivation * falloff * noise;
+        perVertex[i] = val;
+        perVertex[hemiSize + i] = val; // mirror to right hemisphere
+      }
+    }
+
+    // Track global range
+    for (let i = 0; i < numVertices; i++) {
+      if (perVertex[i] < globalMin) globalMin = perVertex[i];
+      if (perVertex[i] > globalMax) globalMax = perVertex[i];
+    }
+
+    return perVertex;
+  });
+
+  return {
+    activations,
+    activationMin: globalMin,
+    activationMax: globalMax,
+  };
 }
 
 function computeTimestepStats(activations: Float32Array): TimestepStats {
@@ -110,38 +177,52 @@ function computeTimestepStats(activations: Float32Array): TimestepStats {
   };
 }
 
-// ─── Color map: dark → cyan → white hot ──────────────────────────────────────
+// ─── Color map: grey brain surface with fire overlay for active regions ──────
+
+// Activation threshold: only values above this (as fraction of max) get colored.
+// Below this, the brain renders as neutral grey — matching real fMRI visualizations.
+const ACTIVATION_THRESHOLD = 0.25;
+
+// Neutral brain surface color (light grey)
+const BRAIN_GREY: [number, number, number] = [0.62, 0.60, 0.58];
 
 function activationToColor(value: number, min: number, max: number): [number, number, number] {
-  // Normalize to 0-1 with contrast boost (power curve)
-  const raw = Math.max(0, Math.min(1, (value - min) / (max - min + 1e-8)));
-  const t = Math.pow(raw, 0.6); // gamma compress — pushes more values into visible range
+  // Normalize using only the positive range (0 to max) — negative values are suppression, not activation
+  const intensity = Math.max(0, value) / (max + 1e-8);
 
-  // Deep navy → electric blue → vivid cyan → magenta-white hot
-  if (t < 0.15) {
-    // Near-black to deep navy
-    const s = t / 0.15;
-    return [0.02 + s * 0.02, 0.02 + s * 0.03, 0.06 + s * 0.12];
-  } else if (t < 0.35) {
-    // Deep navy to electric blue
-    const s = (t - 0.15) / 0.2;
-    return [0.04 + s * 0.02, 0.05 + s * 0.2, 0.18 + s * 0.62];
-  } else if (t < 0.55) {
-    // Electric blue to vivid cyan
-    const s = (t - 0.35) / 0.2;
-    return [0.06 - s * 0.04, 0.25 + s * 0.6, 0.8 + s * 0.2];
-  } else if (t < 0.7) {
-    // Vivid cyan to bright green-cyan
-    const s = (t - 0.55) / 0.15;
-    return [0.02 + s * 0.15, 0.85 + s * 0.15, 1.0 - s * 0.1];
-  } else if (t < 0.85) {
-    // Green-cyan to yellow-hot
-    const s = (t - 0.7) / 0.15;
-    return [0.17 + s * 0.83, 1.0, 0.9 - s * 0.5];
+  // Below threshold: render as neutral grey brain surface
+  if (intensity < ACTIVATION_THRESHOLD) {
+    return BRAIN_GREY;
+  }
+
+  // Remap threshold..1 to 0..1 for the fire color ramp
+  const t = (intensity - ACTIVATION_THRESHOLD) / (1 - ACTIVATION_THRESHOLD);
+
+  // Fire ramp: dark red → red → orange → yellow → white-hot
+  if (t < 0.2) {
+    // Grey-red blend to dark red
+    const s = t / 0.2;
+    return [
+      BRAIN_GREY[0] + s * (0.45 - BRAIN_GREY[0]),
+      BRAIN_GREY[1] + s * (0.08 - BRAIN_GREY[1]),
+      BRAIN_GREY[2] + s * (0.04 - BRAIN_GREY[2]),
+    ];
+  } else if (t < 0.4) {
+    // Dark red to bright red
+    const s = (t - 0.2) / 0.2;
+    return [0.45 + s * 0.45, 0.08 + s * 0.05, 0.04 + s * 0.01];
+  } else if (t < 0.6) {
+    // Bright red to orange
+    const s = (t - 0.4) / 0.2;
+    return [0.9 + s * 0.1, 0.13 + s * 0.37, 0.05 + s * 0.03];
+  } else if (t < 0.8) {
+    // Orange to yellow
+    const s = (t - 0.6) / 0.2;
+    return [1.0, 0.5 + s * 0.45, 0.08 + s * 0.2];
   } else {
-    // Yellow to magenta-white (peak hotspot)
-    const s = (t - 0.85) / 0.15;
-    return [1.0, 1.0 - s * 0.2, 0.4 + s * 0.6];
+    // Yellow to white-hot
+    const s = (t - 0.8) / 0.2;
+    return [1.0, 0.95 + s * 0.05, 0.28 + s * 0.72];
   }
 }
 
@@ -206,7 +287,7 @@ function BrainMesh({
       <meshPhongMaterial
         vertexColors
         shininess={15}
-        specular={new THREE.Color(0x0a1520)}
+        specular={new THREE.Color(0x201008)}
         emissiveIntensity={0.15}
         side={THREE.DoubleSide}
       />
@@ -248,9 +329,11 @@ function LoadingOverlay() {
 export default function BrainViewer({
   currentTime,
   duration,
+  tribeData,
 }: {
   currentTime: number;
   duration: number;
+  tribeData?: TribeTimestep[];
 }) {
   const [brainData, setBrainData] = useState<BrainData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -258,31 +341,42 @@ export default function BrainViewer({
   const [manualTimestep, setManualTimestep] = useState(0);
   const animRef = useRef(0);
 
-  // Load binary data
+  // Load mesh geometry + generate activations from TRIBE data
   useEffect(() => {
     async function load() {
       try {
-        const [metaRes, vertRes, faceRes, actRes] = await Promise.all([
+        const [metaRes, vertRes, faceRes] = await Promise.all([
           fetch("/brain_meta.json"),
           fetch("/brain_vertices.bin"),
           fetch("/brain_faces.bin"),
-          fetch("/brain_activations.bin"),
         ]);
 
         const meta: BrainMeta = await metaRes.json();
         const vertBuf = await vertRes.arrayBuffer();
         const faceBuf = await faceRes.arrayBuffer();
-        const actBuf = await actRes.arrayBuffer();
 
         const vertices = new Float32Array(vertBuf);
         const faces = new Uint32Array(faceBuf);
-        const allActivations = new Float32Array(actBuf);
 
-        // Split activations by timestep
-        const activations: Float32Array[] = [];
-        for (let t = 0; t < meta.numTimesteps; t++) {
-          const offset = t * meta.numVertices;
-          activations.push(allActivations.slice(offset, offset + meta.numVertices));
+        let activations: Float32Array[];
+
+        if (tribeData && tribeData.length > 0) {
+          // Generate activations from TRIBE ROI data
+          const generated = generateActivationsFromTribe(tribeData, meta.numVertices);
+          activations = generated.activations;
+          meta.numTimesteps = activations.length;
+          meta.activationMin = generated.activationMin;
+          meta.activationMax = generated.activationMax;
+        } else {
+          // Fallback: load static binary
+          const actRes = await fetch("/brain_activations.bin");
+          const actBuf = await actRes.arrayBuffer();
+          const allActivations = new Float32Array(actBuf);
+          activations = [];
+          for (let t = 0; t < meta.numTimesteps; t++) {
+            const offset = t * meta.numVertices;
+            activations.push(allActivations.slice(offset, offset + meta.numVertices));
+          }
         }
 
         const stats = activations.map(computeTimestepStats);
@@ -293,7 +387,7 @@ export default function BrainViewer({
       }
     }
     load();
-  }, []);
+  }, [tribeData]);
 
   // Map video time to timestep
   const currentTimestep = useMemo(() => {
@@ -377,7 +471,7 @@ export default function BrainViewer({
                 className="w-[6px] rounded-full"
                 style={{
                   height: "80px",
-                  background: "linear-gradient(to bottom, #fff4a0, #00d4ff, #0055aa, #0a1530)",
+                  background: "linear-gradient(to bottom, #fffbe0, #ffb020, #cc3300, #1a0500)",
                 }}
               />
               <div className="flex flex-col justify-between py-0.5" style={{ height: "80px" }}>
