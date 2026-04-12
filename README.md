@@ -6,8 +6,6 @@ Predicting how your brain responds to content — more accurately than actual br
 
 Ad metrics like clicks, watch time, and scroll depth tell you *what* happened but never *why* — a viewer can watch an entire ad while their brain checked out at second 12. Meta's [TRIBE V2](https://aidemos.atmeta.com/tribev2) predicts brain activation from video content frame by frame, but outputs dense numerical arrays across 15+ brain regions that require neuroscience expertise to interpret.
 
-> **Note:** TRIBE V2 processing is compute-intensive — a 5-second video takes approximately 20 minutes to run through the model.
-
 ## What Grey Matter Does
 
 Grey Matter pipes TRIBE V2 brain activation data through an LLM to produce actionable ad intelligence. The LLM receives TRIBE activation arrays per timestep, a brain region-to-function reference sheet, and a structured prompt — and produces a three-layer report:
