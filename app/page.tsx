@@ -1,39 +1,242 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Insight, TribeTimestep } from "@/lib/types";
 import tribeData from "@/data/tribe_1984.json";
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Design tokens ────────────────────────────────────────────────────────────
 
-const BRAIN_REGIONS = [
-  "inferotemporal cortex",
-  "orbitofrontal cortex",
-  "V1",
-  "V2",
-  "V4",
-  "prefrontal cortex",
-  "fusiform gyrus",
-  "superior temporal sulcus",
-  "posterior parietal cortex",
-  "anterior cingulate cortex",
-];
+const C = {
+  bgVoid:        "#0A0A0B",
+  bgSurface:     "#131316",
+  bgInset:       "#1C1C20",
+  borderHair:    "#24242A",
+  borderActive:  "#3A3A44",
+  textPrimary:   "#F2F0EA",
+  textSecondary: "#8A8A92",
+  textTertiary:  "#4E4E56",
+  signal:        "#E8E3D4",
+  peak:          "#B8E0C2",
+  warn:          "#E8B5A0",
+  scan:          "#7A9BB8",
+} as const;
+
+const FONT_SERIF = "var(--font-serif), 'Georgia', serif";
+const FONT_MONO  = "var(--font-mono), 'JetBrains Mono', 'SF Mono', monospace";
+const FONT_BODY  = "var(--font-body), 'Inter', sans-serif";
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const ASCII_CHARS = " .·:-=+*#%@";
+const BRAIN_COLS  = 54;
+const BRAIN_ROWS  = 22;
+const TOTAL_FRAMES = 60; // 60fps-worth at 10fps = 6s loop
 
 const LOADING_STEPS = [
-  { label: "Initializing TRIBE v2 cortical model", duration: 1200 },
-  { label: "Loading ROI atlas mapping", duration: 1800 },
-  { label: "Parsing fMRI activation arrays", duration: 2000 },
-  { label: "Downsampling to top 10 ROIs per timestep", duration: 1600 },
-  { label: "Mapping Schaefer-Destrieux parcellation", duration: 2200 },
-  { label: "Normalizing activation magnitudes", duration: 1400 },
-  { label: "Preparing synthesis payload", duration: 1000 },
+  { label: "extracting video frames",       duration: 1200 },
+  { label: "encoding audio stream",         duration: 1500 },
+  { label: "running visual cortex model",   duration: 2500 },
+  { label: "mapping brain region activity", duration: 2000 },
+  { label: "rendering neural timeline",     duration: 1800 },
+  { label: "preparing your insights",       duration: 1000 },
+] as const;
+
+const POETIC_MESSAGES = [
+  "listening to the occipital lobe...",
+  "asking the reward system what it saw...",
+  "measuring the space between intention and response...",
+  "tracing the path from retina to recognition...",
+  "watching the fusiform gyrus recognize a face...",
+  "counting the milliseconds of unconscious attention...",
+  "mapping where the brain stopped caring...",
+  "reading the signature of surprise...",
+  "following the cascade from visual cortex to meaning...",
+  "noting where the narrative broke through...",
+  "observing the prefrontal cortex weigh what it felt...",
+  "cataloguing moments the brain chose to remember...",
+  "finding the gap between what was shown and what was felt...",
+  "decoding the emotional residue of motion...",
+  "listening for the quiet moments between peaks...",
+  "tracing the arc of arousal through time...",
+  "watching attention rise and fall like breath...",
+  "reading the delta between expectation and event...",
 ];
 
 type AppState = "upload" | "loading" | "results";
 
+// ─── ASCII Brain Generator ────────────────────────────────────────────────────
+//
+// Analytical ray–ellipsoid intersection for two brain hemispheres.
+// For each pixel (sx, sy) we rotate the view ray by angle θ (Y-axis),
+// find the front surface z, shade by depth + gyri noise.
+
+function generateBrainFrames(totalFrames: number): string[] {
+  const frames: string[] = [];
+
+  // Returns front-surface z (in view space) for an ellipsoid centered at (cx,0,0)
+  // with semi-axes (a, b, c) rotated by (cosA, sinA) around Y.
+  function frontZ(
+    sx: number, sy: number,
+    cx: number, a: number, b: number, c: number,
+    cosA: number, sinA: number
+  ): number {
+    // In world space: wx = sx·cosA + z·sinA – cx
+    //                 wy = sy
+    //                 wz = –sx·sinA + z·cosA
+    // Ellipsoid: wx²/a² + wy²/b² + wz²/c² = 1  →  quadratic in z
+    const u  = sx * cosA - cx;
+    const w0 = -sx * sinA;
+
+    const A = sinA * sinA / (a * a) + cosA * cosA / (c * c);
+    const B = 2 * (u * sinA / (a * a) + w0 * cosA / (c * c));
+    const Cv = u * u / (a * a) + sy * sy / (b * b) + w0 * w0 / (c * c) - 1;
+
+    const disc = B * B - 4 * A * Cv;
+    if (disc < 0) return -Infinity;
+    return (-B + Math.sqrt(disc)) / (2 * A); // front (max z)
+  }
+
+  for (let f = 0; f < totalFrames; f++) {
+    const angle = (f / totalFrames) * Math.PI * 2;
+    const cosA  = Math.cos(angle);
+    const sinA  = Math.sin(angle);
+
+    const lines: string[] = [];
+    for (let r = 0; r < BRAIN_ROWS; r++) {
+      let line = "";
+      for (let c = 0; c < BRAIN_COLS; c++) {
+        // Normalise; correct for monospace character aspect ratio (~0.55 w/h)
+        const sx = (c / (BRAIN_COLS - 1)) * 2 - 1;
+        const sy = ((r / (BRAIN_ROWS - 1)) * 2 - 1) * 1.7;
+
+        // Left and right hemispheres
+        const z1 = frontZ(sx, sy, -0.26, 0.54, 0.70, 0.76, cosA, sinA);
+        const z2 = frontZ(sx, sy,  0.26, 0.54, 0.70, 0.76, cosA, sinA);
+
+        const z = Math.max(
+          isFinite(z1) ? z1 : -Infinity,
+          isFinite(z2) ? z2 : -Infinity
+        );
+
+        if (isFinite(z) && z > -2 && z < 2) {
+          // World-space coords for texture
+          const wx = sx * cosA + z * sinA;
+          const wz = -sx * sinA + z * cosA;
+          const wy = sy;
+
+          // Gyri wrinkle noise
+          const gyri =
+            0.09 * Math.sin(wx * 9 + wz * 4) * Math.cos(wy * 6) +
+            0.04 * Math.sin(wx * 5 - wy * 8);
+
+          const lum = Math.max(0, Math.min(1, (z + 1) / 2 + gyri));
+          const idx = Math.max(1, Math.min(
+            ASCII_CHARS.length - 1,
+            Math.round(lum * (ASCII_CHARS.length - 2)) + 1
+          ));
+          line += ASCII_CHARS[idx];
+        } else {
+          line += " ";
+        }
+      }
+      lines.push(line);
+    }
+    frames.push(lines.join("\n"));
+  }
+  return frames;
+}
+
+// ─── ASCII Brain Component ────────────────────────────────────────────────────
+
+function ASCIIBrain({
+  frames,
+  fps = 10,
+  pulse = false,
+  fontSize = "9px",
+}: {
+  frames: string[];
+  fps?: number;
+  pulse?: boolean;
+  fontSize?: string;
+}) {
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setIdx((i) => (i + 1) % frames.length), 1000 / fps);
+    return () => clearInterval(t);
+  }, [frames, fps]);
+
+  return (
+    <pre
+      style={{
+        fontFamily: FONT_MONO,
+        fontSize,
+        lineHeight: "1.0",
+        letterSpacing: "0px",
+        color: pulse ? C.scan : C.textTertiary,
+        margin: 0,
+        padding: 0,
+        userSelect: "none",
+        transition: "color 400ms linear",
+      }}
+    >
+      {frames[idx]}
+    </pre>
+  );
+}
+
+// ─── Shared: Status Bar ───────────────────────────────────────────────────────
+
+function StatusBar({ left, right }: { left: string; right: string }) {
+  return (
+    <div
+      style={{
+        height: "32px",
+        background: C.bgSurface,
+        borderTop: `1px solid ${C.borderHair}`,
+        display: "flex",
+        alignItems: "center",
+        padding: "0 20px",
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary, flex: 1 }}>
+        {left}
+      </span>
+      <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary }}>
+        {right}
+      </span>
+    </div>
+  );
+}
+
+function TopBar({ left, right }: { left: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        height: "36px",
+        background: C.bgSurface,
+        borderBottom: `1px solid ${C.borderHair}`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 20px",
+        flexShrink: 0,
+      }}
+    >
+      <div style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textSecondary }}>
+        {left}
+      </div>
+      <div style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary }}>
+        {right ?? "⚙"}
+      </div>
+    </div>
+  );
+}
+
 // ─── Upload View ──────────────────────────────────────────────────────────────
 
-function UploadView({ onFile }: { onFile: (file: File) => void }) {
+function UploadView({ onFile, frames }: { onFile: (file: File) => void; frames: string[] }) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -56,331 +259,254 @@ function UploadView({ onFile }: { onFile: (file: File) => void }) {
   );
 
   return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center px-6"
-      style={{
-        background:
-          "radial-gradient(ellipse at 50% 40%, #0a1628 0%, #07080f 70%)",
-      }}
-    >
-      {/* Header */}
-      <div className="mb-12 text-center">
-        <div className="flex items-center justify-center gap-3 mb-3">
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <circle
-              cx="16"
-              cy="16"
-              r="14"
-              stroke="#00d4ff"
-              strokeWidth="1.5"
-              strokeDasharray="3 2"
-              opacity="0.6"
-            />
-            <circle cx="16" cy="16" r="8" stroke="#00d4ff" strokeWidth="1" opacity="0.4" />
-            <circle cx="16" cy="16" r="3" fill="#00d4ff" opacity="0.9" />
-            <line x1="16" y1="2" x2="16" y2="8" stroke="#00d4ff" strokeWidth="1" opacity="0.5" />
-            <line x1="16" y1="24" x2="16" y2="30" stroke="#00d4ff" strokeWidth="1" opacity="0.5" />
-            <line x1="2" y1="16" x2="8" y2="16" stroke="#00d4ff" strokeWidth="1" opacity="0.5" />
-            <line x1="24" y1="16" x2="30" y2="16" stroke="#00d4ff" strokeWidth="1" opacity="0.5" />
-          </svg>
-          <h1
-            className="text-3xl font-light tracking-[0.2em] text-cyan-100"
-            style={{ fontFamily: "inherit" }}
-          >
-            NEUROSCAN
-          </h1>
-        </div>
-        <p className="text-sm text-slate-500 tracking-widest uppercase">
-          Cortical Activation Modeling
-        </p>
-        <p
-          className="mt-3 text-slate-400 text-sm max-w-sm mx-auto leading-relaxed"
-          style={{ fontFamily: "system-ui, sans-serif" }}
-        >
-          See what a video does to a human brain — second by second.
-        </p>
-      </div>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: C.bgVoid }}>
+      <TopBar left="NEUROSCAN  /  v0.1" right="[config]  ⚙" />
 
-      {/* Drop Zone */}
+      {/* Center */}
       <div
-        className={`relative w-full max-w-lg border rounded-lg p-12 text-center cursor-pointer transition-all duration-300`}
         style={{
-          borderColor: dragging ? "#00d4ff" : "rgba(0,212,255,0.2)",
-          background: dragging
-            ? "rgba(0,212,255,0.05)"
-            : "rgba(255,255,255,0.02)",
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "36px",
+          padding: "40px 20px",
         }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
       >
-        <input
-          ref={inputRef}
-          type="file"
-          accept="video/*,.mov,.mp4"
-          className="hidden"
-          onChange={handleChange}
-        />
-        <div className="flex flex-col items-center gap-4">
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center"
-            style={{
-              background: "rgba(0,212,255,0.06)",
-              border: "1px solid rgba(0,212,255,0.2)",
-            }}
-          >
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#00d4ff"
-              strokeWidth="1.5"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-cyan-200 text-sm tracking-wide">
-              Drop video file here
-            </p>
-            <p className="text-slate-600 text-xs mt-1">
-              .mov · .mp4 · any video format
-            </p>
-          </div>
-          <span className="text-xs text-slate-600 tracking-widest uppercase mt-2">
-            or click to browse
+        {/* ASCII brain — static, dim */}
+        <div style={{ opacity: 0.35, pointerEvents: "none" }}>
+          <ASCIIBrain frames={frames} fps={2} fontSize="9px" />
+        </div>
+
+        {/* Hero serif headline */}
+        <h1
+          style={{
+            fontFamily: FONT_SERIF,
+            fontSize: "clamp(36px, 5vw, 64px)",
+            fontWeight: 400,
+            color: C.textPrimary,
+            letterSpacing: "-0.02em",
+            lineHeight: 1.1,
+            margin: 0,
+            textAlign: "center",
+            textShadow: `0 0 18px rgba(242, 240, 234, 0.35)`,
+          }}
+        >
+          What does this video
+          <br />
+          do to a brain?
+        </h1>
+
+        {/* Drop zone */}
+        <div
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={handleDrop}
+          style={{
+            width: "480px",
+            maxWidth: "90vw",
+            height: "220px",
+            background: C.bgInset,
+            border: `1px ${dragging ? "solid" : "dashed"} ${dragging ? C.signal : C.borderHair}`,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "10px",
+            cursor: "pointer",
+            transition: "border 200ms, background 200ms",
+            ...(dragging ? { background: "rgba(232,227,212,0.025)" } : {}),
+          }}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            accept="video/*,.mov,.mp4"
+            style={{ display: "none" }}
+            onChange={handleChange}
+          />
+          <span style={{ fontFamily: FONT_MONO, fontSize: "13px", color: C.textSecondary }}>
+            drop .mov here
+          </span>
+          <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary }}>
+            or click to select
           </span>
         </div>
       </div>
 
-      <p className="mt-8 text-xs text-slate-700 tracking-wide">
-        TRIBE v2 · Schaefer-Destrieux atlas · claude-sonnet
-      </p>
+      <StatusBar left="─ status: idle" right="model: tribe v2 ─" />
     </div>
   );
 }
 
 // ─── Loading View ─────────────────────────────────────────────────────────────
 
-function LoadingView({ onComplete }: { onComplete: () => void }) {
-  const [completedSteps, setCompletedSteps] = useState<number[]>([]);
-  const [currentRegion, setCurrentRegion] = useState(BRAIN_REGIONS[0]);
-  const [regionKey, setRegionKey] = useState(0);
+function LoadingView({ onComplete, frames }: { onComplete: () => void; frames: string[] }) {
+  const [completedSteps, setCompletedSteps]   = useState<number[]>([]);
+  const [stepTimes, setStepTimes]             = useState<Record<number, string>>({});
+  const [elapsedMs, setElapsedMs]             = useState(0);
+  const [poeticMsg, setPoeticMsg]             = useState(POETIC_MESSAGES[0]);
+  const [poeticKey, setPoeticKey]             = useState(0);
+  const [pulse, setPulse]                     = useState(false);
   const hasCompleted = useRef(false);
+  const startTime    = useRef(Date.now());
 
+  const fmtMs = (ms: number) => {
+    const totalSec = Math.floor(ms / 1000);
+    const min  = Math.floor(totalSec / 60);
+    const sec  = totalSec % 60;
+    const milli = ms % 1000;
+    return `${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(milli).padStart(3, "0")}`;
+  };
+
+  // Elapsed ticker
   useEffect(() => {
-    let elapsed = 0;
+    const id = setInterval(() => setElapsedMs(Date.now() - startTime.current), 50);
+    return () => clearInterval(id);
+  }, []);
+
+  // Step completion schedule
+  useEffect(() => {
+    let acc = 0;
     const timers: ReturnType<typeof setTimeout>[] = [];
 
     LOADING_STEPS.forEach((step, i) => {
       const t = setTimeout(() => {
+        const ms = Date.now() - startTime.current;
+        setStepTimes((prev) => ({ ...prev, [i]: fmtMs(ms) }));
         setCompletedSteps((prev) => [...prev, i]);
-      }, elapsed + step.duration);
+        setPulse(true);
+        setTimeout(() => setPulse(false), 400);
+      }, acc + step.duration);
       timers.push(t);
-      elapsed += step.duration;
+      acc += step.duration;
     });
 
-    const doneTimer = setTimeout(() => {
+    const done = setTimeout(() => {
       if (!hasCompleted.current) {
         hasCompleted.current = true;
         onComplete();
       }
-    }, elapsed + 800);
-    timers.push(doneTimer);
+    }, acc + 800);
+    timers.push(done);
 
     return () => timers.forEach(clearTimeout);
-  }, [onComplete]);
+  }, [onComplete]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Poetic message cycle
   useEffect(() => {
-    let idx = 0;
-    const cycle = () => {
-      idx = (idx + 1) % BRAIN_REGIONS.length;
-      setCurrentRegion(BRAIN_REGIONS[idx]);
-      setRegionKey((k) => k + 1);
-    };
-    const interval = setInterval(cycle, 1300);
-    return () => clearInterval(interval);
+    let idx = 1;
+    const id = setInterval(() => {
+      setPoeticMsg(POETIC_MESSAGES[idx % POETIC_MESSAGES.length]);
+      setPoeticKey((k) => k + 1);
+      idx++;
+    }, 3200);
+    return () => clearInterval(id);
   }, []);
 
-  const totalDuration = LOADING_STEPS.reduce((s, x) => s + x.duration, 0);
-  const elapsed = completedSteps.reduce(
-    (s, i) => s + LOADING_STEPS[i].duration,
-    0
-  );
-  const pct = Math.min(96, Math.round((elapsed / totalDuration) * 100));
-
   return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center px-6 scanlines relative"
-      style={{
-        background:
-          "radial-gradient(ellipse at 50% 30%, #0a1628 0%, #07080f 70%)",
-      }}
-    >
-      {/* Logo */}
-      <div className="mb-10 text-center">
-        <h1 className="text-xl font-light tracking-[0.3em] text-cyan-300 opacity-80">
-          NEUROSCAN
-        </h1>
-      </div>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: C.bgVoid }}>
+      <TopBar left="NEUROSCAN  /  v0.1" />
 
-      <div className="w-full max-w-md">
-        {/* Region cycling */}
-        <div className="mb-6 text-center h-6">
-          <span
-            key={regionKey}
-            className="text-xs tracking-widest uppercase"
-            style={{
-              color: "#00d4ff",
-              opacity: 0,
-              display: "inline-block",
-              animation: "insight-appear 0.4s ease-out forwards",
-            }}
-          >
-            ◈ {currentRegion}
-          </span>
-        </div>
-
-        {/* Progress bar */}
-        <div className="mb-2 flex justify-between items-center">
-          <span className="text-xs text-slate-500 tracking-wider">
-            CORTICAL MAPPING
-          </span>
-          <span
-            className="text-xs tabular-nums"
-            style={{ color: "#00d4ff" }}
-          >
-            {pct}%
-          </span>
-        </div>
+      {/* Split 60/40 */}
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        {/* Left 60%: rotating ASCII brain */}
         <div
-          className="w-full h-1 rounded-full mb-8"
-          style={{ background: "rgba(0,212,255,0.08)" }}
+          style={{
+            width: "60%",
+            borderRight: `1px solid ${C.borderHair}`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
         >
-          <div
-            className="h-full rounded-full transition-all duration-700"
-            style={{
-              width: `${pct}%`,
-              background: "linear-gradient(90deg, #0e4a6e, #00d4ff)",
-              boxShadow: "0 0 8px rgba(0,212,255,0.4)",
-            }}
-          />
+          <ASCIIBrain frames={frames} fps={10} pulse={pulse} fontSize="10px" />
         </div>
 
-        {/* Checklist */}
-        <div className="space-y-3">
-          {LOADING_STEPS.map((step, i) => {
-            const done = completedSteps.includes(i);
-            const active =
-              !done &&
-              (i === 0 || completedSteps.includes(i - 1)) &&
-              !completedSteps.includes(i);
-            return (
-              <div
-                key={i}
-                className="flex items-start gap-3 transition-opacity duration-500"
-                style={{ opacity: done || active ? 1 : 0.25 }}
-              >
-                <div className="mt-0.5 w-4 h-4 flex items-center justify-center flex-shrink-0">
-                  {done ? (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <circle
-                        cx="7"
-                        cy="7"
-                        r="6"
-                        stroke="#00d4ff"
-                        strokeWidth="1"
-                        fill="rgba(0,212,255,0.08)"
-                      />
-                      <path
-                        d="M4 7l2 2 4-4"
-                        stroke="#00d4ff"
-                        strokeWidth="1.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  ) : active ? (
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{
-                        background: "#00d4ff",
-                        boxShadow: "0 0 6px #00d4ff",
-                        animation: "insight-pulse 1s ease-in-out infinite",
-                      }}
-                    />
-                  ) : (
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ background: "rgba(0,212,255,0.15)" }}
-                    />
-                  )}
-                </div>
-                <span
-                  className="text-xs leading-relaxed"
+        {/* Right 40%: checklist + poetic message */}
+        <div
+          style={{
+            width: "40%",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            padding: "48px 52px",
+            gap: "40px",
+          }}
+        >
+          {/* IDE checklist */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {LOADING_STEPS.map((step, i) => {
+              const done   = completedSteps.includes(i);
+              const active = !done && (i === 0 || completedSteps.includes(i - 1));
+              return (
+                <div
+                  key={i}
                   style={{
-                    color: done ? "#67e8f9" : active ? "#e2e8f0" : "#475569",
-                    fontFamily: "inherit",
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: "10px",
+                    opacity: done || active ? 1 : 0.3,
+                    transition: "opacity 300ms",
                   }}
                 >
-                  {step.label}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Brain Activity Bars ──────────────────────────────────────────────────────
-
-function BrainActivityBars({ tribeTimestep }: { tribeTimestep: typeof tribeData[0] | null }) {
-  if (!tribeTimestep) {
-    return (
-      <div className="flex items-center justify-center h-full text-slate-700 text-xs tracking-widest">
-        PLAY VIDEO TO ACTIVATE
-      </div>
-    );
-  }
-  const max = tribeTimestep.rois[0]?.activation ?? 1;
-  return (
-    <div className="flex flex-col gap-1.5 w-full">
-      {tribeTimestep.rois.slice(0, 8).map((roi) => (
-        <div key={roi.name} className="flex items-center gap-2">
-          <span
-            className="text-right flex-shrink-0"
-            style={{ color: "#475569", fontSize: "9px", width: "140px", fontFamily: "inherit" }}
-          >
-            {roi.name}
-          </span>
-          <div className="flex-1 h-1.5 rounded-full" style={{ background: "rgba(0,212,255,0.08)" }}>
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${(roi.activation / max) * 100}%`,
-                background: `linear-gradient(90deg, #0e4a6e, #00d4ff)`,
-                opacity: 0.4 + (roi.activation / max) * 0.6,
-                boxShadow: roi.activation > 0.7 * max ? "0 0 4px rgba(0,212,255,0.4)" : "none",
-              }}
-            />
+                  <span
+                    style={{
+                      fontFamily: FONT_MONO,
+                      fontSize: "12px",
+                      color: done ? C.peak : active ? C.textPrimary : C.textTertiary,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {done ? "[✓]" : active ? "[▸]" : "[ ]"}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: FONT_MONO,
+                      fontSize: "12px",
+                      color: done ? C.textSecondary : active ? C.textPrimary : C.textTertiary,
+                      flex: 1,
+                    }}
+                  >
+                    {step.label}
+                    {active && (
+                      <span
+                        style={{ color: C.scan, animation: "blink 1s step-start infinite" }}
+                      >
+                        _
+                      </span>
+                    )}
+                  </span>
+                  <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary, flexShrink: 0 }}>
+                    {done ? stepTimes[i] ?? "—" : active ? fmtMs(elapsedMs) : "—"}
+                  </span>
+                </div>
+              );
+            })}
           </div>
-          <span
-            className="tabular-nums flex-shrink-0"
-            style={{ color: "#1e4a6e", fontSize: "9px", width: "32px" }}
-          >
-            {roi.activation.toFixed(3)}
-          </span>
+
+          {/* Poetic status message */}
+          <div style={{ height: "22px", overflow: "hidden" }}>
+            <span
+              key={poeticKey}
+              style={{
+                fontFamily: FONT_SERIF,
+                fontStyle: "italic",
+                fontSize: "14px",
+                color: C.textSecondary,
+                display: "inline-block",
+                animation: "fade-cycle 3.2s ease-in-out forwards",
+              }}
+            >
+              {poeticMsg}
+            </span>
+          </div>
         </div>
-      ))}
+      </div>
+
+      <StatusBar left={`─ demo_video.mov`} right={`elapsed: ${fmtMs(elapsedMs)}  model: tribe v2 ─`} />
     </div>
   );
 }
@@ -391,39 +517,78 @@ function ResultsView({
   videoUrl,
   insights,
   isStreaming,
+  fileName,
 }: {
   videoUrl: string;
   insights: Insight[];
   isStreaming: boolean;
+  fileName: string;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef       = useRef<HTMLVideoElement>(null);
+  const timelineRef    = useRef<HTMLDivElement>(null);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const timestampRowRef = useRef<HTMLDivElement>(null);
+  const [duration, setDuration]       = useState(0);
 
-  // Find the active insight index based on current video time
+  // Active insight index synced to video time
   const activeIdx = insights.reduce((best, ins, i) => {
     if (ins.timestamp_sec <= currentTime) return i;
     return best;
   }, -1);
 
-  // Find the matching tribe timestep for the current time
-  const tribeTimestep = (tribeData as typeof tribeData).reduce(
-    (best: typeof tribeData[0] | null, t) => {
-      if (t.timestamp_sec <= currentTime) return t;
-      return best;
-    },
+  // Nearest tribe timestep for brain data
+  const tribeStep = (tribeData as TribeTimestep[]).reduce(
+    (best: TribeTimestep | null, t) => (t.timestamp_sec <= currentTime ? t : best),
     null
   );
 
-  // Scroll active timestamp chip into view
-  useEffect(() => {
-    if (activeIdx >= 0 && timestampRowRef.current) {
-      const chips = timestampRowRef.current.querySelectorAll("[data-ts-chip]");
-      const chip = chips[activeIdx] as HTMLElement;
-      if (chip) chip.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
-    }
-  }, [activeIdx]);
+  // Computed scores (memoised — tribe data is static)
+  const attentionScore = useMemo(() => {
+    const data = tribeData as TribeTimestep[];
+    if (!data.length) return 74;
+    const avg = data.reduce((s, ts) => s + (ts.rois[0]?.activation ?? 0), 0) / data.length;
+    return Math.round(avg * 100);
+  }, []);
+
+  const peakTs = useMemo(() => {
+    const data = tribeData as TribeTimestep[];
+    return data.reduce(
+      (best, ts) => ((ts.rois[0]?.activation ?? 0) > (best.rois[0]?.activation ?? 0) ? ts : best),
+      data[0]
+    );
+  }, []);
+
+  const dropTs = useMemo(() => {
+    const data = tribeData as TribeTimestep[];
+    return data.reduce(
+      (worst, ts) => ((ts.rois[0]?.activation ?? 0) < (worst.rois[0]?.activation ?? 0) ? ts : worst),
+      data[0]
+    );
+  }, []);
+
+  // Single-row activation strip
+  const activationStrip = useMemo(() => {
+    return (tribeData as TribeTimestep[])
+      .map((ts) => {
+        const lum = ts.rois[0]?.activation ?? 0;
+        const idx = Math.round(lum * (ASCII_CHARS.length - 1));
+        return ASCII_CHARS[Math.max(0, Math.min(ASCII_CHARS.length - 1, idx))];
+      })
+      .join("");
+  }, []);
+
+  const fmt = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
+  const blockBar = (act: number) => {
+    const filled = Math.round(act * 8);
+    return "█".repeat(filled) + "░".repeat(8 - filled);
+  };
+
+  const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const activeInsight = activeIdx >= 0 ? insights[activeIdx] : null;
 
   const seekTo = useCallback((sec: number) => {
     if (videoRef.current) {
@@ -432,241 +597,483 @@ function ResultsView({
     }
   }, []);
 
-  const formatTime = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${m}:${String(s).padStart(2, "0")}`;
-  };
-
-  const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
-
-  const activeInsight = activeIdx >= 0 ? insights[activeIdx] : null;
+  // Auto-scroll active timeline card
+  useEffect(() => {
+    if (activeIdx >= 0 && timelineRef.current) {
+      const cards = timelineRef.current.querySelectorAll("[data-card]");
+      const card = cards[activeIdx] as HTMLElement;
+      if (card) card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [activeIdx]);
 
   return (
-    <div
-      className="flex flex-col"
-      style={{ height: "100vh", background: "#07080f", overflow: "hidden" }}
-    >
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: C.bgVoid, overflow: "hidden" }}>
       {/* Top bar */}
       <div
-        className="flex items-center justify-between px-6 py-3 border-b flex-shrink-0"
-        style={{ borderColor: "rgba(0,212,255,0.08)" }}
+        style={{
+          height: "36px",
+          background: C.bgSurface,
+          borderBottom: `1px solid ${C.borderHair}`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 20px",
+          flexShrink: 0,
+        }}
       >
-        <div className="flex items-center gap-2">
-          <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="16" r="14" stroke="#00d4ff" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.6" />
-            <circle cx="16" cy="16" r="3" fill="#00d4ff" opacity="0.9" />
-          </svg>
-          <span className="text-sm tracking-[0.2em] text-cyan-300 font-light">NEUROSCAN</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", fontFamily: FONT_MONO, fontSize: "11px" }}>
+          <span style={{ color: C.textSecondary }}>NEUROSCAN</span>
+          <span style={{ color: C.textTertiary }}>/</span>
+          <span style={{ color: C.textTertiary }}>{fileName || "demo_video.mov"}</span>
         </div>
-        <div className="flex items-center gap-2">
-          {isStreaming && (
-            <>
-              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" style={{ animation: "insight-pulse 1s ease-in-out infinite" }} />
-              <span className="text-xs text-slate-500 tracking-wider">SYNTHESIZING</span>
-            </>
-          )}
-          {!isStreaming && insights.length > 0 && (
-            <>
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              <span className="text-xs text-slate-500 tracking-wider">{insights.length} INSIGHTS</span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Main content: top row (video | brain+insights) */}
-      <div className="flex flex-1 overflow-hidden" style={{ minHeight: 0 }}>
-        {/* Left: Video */}
-        <div
-          className="flex flex-col p-4 border-r"
-          style={{ width: "55%", borderColor: "rgba(0,212,255,0.08)" }}
-        >
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            controls
-            className="w-full rounded-md"
-            style={{
-              flex: 1,
-              minHeight: 0,
-              background: "#000",
-              border: "1px solid rgba(0,212,255,0.1)",
-              objectFit: "contain",
-            }}
-            onTimeUpdate={(e) => setCurrentTime((e.target as HTMLVideoElement).currentTime)}
-            onLoadedMetadata={(e) => setDuration((e.target as HTMLVideoElement).duration)}
-          />
-        </div>
-
-        {/* Right: Brain activity + Text insights */}
-        <div className="flex flex-col flex-1 overflow-hidden">
-          {/* Brain activity model */}
-          <div
-            className="flex flex-col p-4 border-b"
-            style={{ borderColor: "rgba(0,212,255,0.08)", flex: "0 0 auto" }}
-          >
-            <p className="text-xs text-slate-500 tracking-widest uppercase mb-3">
-              Brain Activity Model
-            </p>
-            <BrainActivityBars tribeTimestep={tribeTimestep} />
-          </div>
-
-          {/* Text insights */}
-          <div className="flex flex-col flex-1 p-4 overflow-hidden">
-            <p className="text-xs text-slate-500 tracking-widest uppercase mb-3 flex-shrink-0">
-              Text Insights
-            </p>
-
-            {insights.length === 0 && isStreaming && (
-              <div className="flex items-center gap-2 text-slate-600">
-                <div
-                  className="w-4 h-4 rounded-full border-2 flex-shrink-0"
-                  style={{ borderColor: "rgba(0,212,255,0.2)", borderTopColor: "#00d4ff", animation: "spin 1s linear infinite" }}
-                />
-                <span className="text-xs tracking-widest">Streaming insights...</span>
-              </div>
-            )}
-
-            {activeInsight ? (
-              <div className="insight-appear flex-1 overflow-auto">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="tabular-nums text-xs" style={{ color: "#00d4ff" }}>
-                    {formatTime(activeInsight.timestamp_sec)}
-                  </span>
-                  <span className="text-xs" style={{ color: "#1e6080", fontSize: "10px" }}>
-                    {activeInsight.top_regions[0]}
-                  </span>
-                </div>
-                <p
-                  className="text-sm leading-relaxed mb-3"
-                  style={{ color: "#94a3b8", fontFamily: "system-ui, sans-serif" }}
-                >
-                  {activeInsight.insight}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {activeInsight.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      style={{
-                        background: "rgba(0,212,255,0.06)",
-                        border: "1px solid rgba(0,212,255,0.15)",
-                        color: "#67e8f9",
-                        fontSize: "9px",
-                        padding: "2px 8px",
-                        borderRadius: "9999px",
-                      }}
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              !isStreaming && insights.length > 0 && (
-                <p className="text-xs text-slate-700 tracking-wide" style={{ fontFamily: "system-ui" }}>
-                  Play the video to see insights.
-                </p>
-              )
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom: Video progress bar */}
-      <div
-        className="flex-shrink-0 px-4 py-2 border-t"
-        style={{ borderColor: "rgba(0,212,255,0.08)" }}
-      >
-        <div className="flex items-center gap-3">
-          <span className="text-xs tabular-nums" style={{ color: "#475569", minWidth: "36px" }}>
-            {formatTime(currentTime)}
-          </span>
-          <div
-            className="flex-1 h-1 rounded-full cursor-pointer relative"
-            style={{ background: "rgba(0,212,255,0.1)" }}
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const pct = (e.clientX - rect.left) / rect.width;
-              seekTo(pct * duration);
-            }}
-          >
-            {/* Fill */}
-            <div
-              className="h-full rounded-full pointer-events-none"
+        <div style={{ display: "flex", gap: "10px" }}>
+          {[["[re-analyze]"], ["[export ↓]"]].map(([label]) => (
+            <button
+              key={label}
               style={{
-                width: `${progressPct}%`,
-                background: "linear-gradient(90deg, #0e4a6e, #00d4ff)",
-                boxShadow: "0 0 6px rgba(0,212,255,0.3)",
+                fontFamily: FONT_MONO,
+                fontSize: "11px",
+                color: C.textSecondary,
+                background: C.bgInset,
+                border: `1px solid ${C.borderHair}`,
+                padding: "3px 10px",
+                cursor: "pointer",
               }}
-            />
-            {/* Insight markers */}
-            {duration > 0 && insights.map((ins, i) => (
-              <div
-                key={i}
-                className="absolute top-1/2 -translate-y-1/2 w-1 h-1 rounded-full cursor-pointer"
-                style={{
-                  left: `${(ins.timestamp_sec / duration) * 100}%`,
-                  background: i === activeIdx ? "#00d4ff" : "rgba(0,212,255,0.4)",
-                  transform: "translate(-50%, -50%)",
-                }}
-                onClick={(e) => { e.stopPropagation(); seekTo(ins.timestamp_sec); }}
-              />
-            ))}
-          </div>
-          <span className="text-xs tabular-nums" style={{ color: "#475569", minWidth: "36px" }}>
-            {formatTime(duration)}
-          </span>
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Bottom: Timestamps row */}
-      <div
-        className="flex-shrink-0 border-t overflow-hidden"
-        style={{ borderColor: "rgba(0,212,255,0.08)" }}
-      >
+      {/* Three-pane body */}
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+
+        {/* ── Left rail: Timeline ── */}
         <div
-          ref={timestampRowRef}
-          className="flex overflow-x-auto gap-0"
-          style={{ scrollbarWidth: "none" }}
+          style={{
+            width: "196px",
+            flexShrink: 0,
+            borderRight: `1px solid ${C.borderHair}`,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
         >
-          {insights.map((ins, i) => {
-            const isActive = i === activeIdx;
-            return (
-              <button
-                key={i}
-                data-ts-chip=""
-                onClick={() => seekTo(ins.timestamp_sec)}
-                className="flex-shrink-0 flex flex-col px-3 py-2 transition-all duration-150 border-r text-left"
+          <div
+            style={{
+              padding: "10px 16px",
+              borderBottom: `1px solid ${C.borderHair}`,
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ fontFamily: FONT_MONO, fontSize: "10px", color: C.textTertiary, letterSpacing: "0.08em" }}>
+              TIMELINE
+            </span>
+          </div>
+
+          <div ref={timelineRef} style={{ flex: 1, overflowY: "auto" }}>
+            {insights.map((ins, i) => {
+              const isActive = i === activeIdx;
+              const step = (tribeData as TribeTimestep[]).find(
+                (t) => t.timestamp_sec === ins.timestamp_sec
+              );
+              const act = step?.rois[0]?.activation ?? 0;
+              return (
+                <div
+                  key={i}
+                  data-card=""
+                  onClick={() => seekTo(ins.timestamp_sec)}
+                  style={{
+                    height: "72px",
+                    padding: "10px 14px 10px 16px",
+                    cursor: "pointer",
+                    borderLeft: `2px solid ${isActive ? C.signal : "transparent"}`,
+                    background: isActive ? C.bgSurface : "transparent",
+                    borderBottom: `1px solid ${C.borderHair}`,
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    transition: "background 200ms, border-color 200ms",
+                  }}
+                >
+                  <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary }}>
+                    {fmt(ins.timestamp_sec)}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: FONT_MONO,
+                      fontSize: "11px",
+                      color: act > 0.65 ? C.peak : act < 0.35 ? C.warn : C.textSecondary,
+                    }}
+                  >
+                    {blockBar(act)}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: FONT_SERIF,
+                      fontSize: "13px",
+                      color: C.textPrimary,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {ins.top_regions[0]}
+                  </span>
+                </div>
+              );
+            })}
+
+            {isStreaming && (
+              <div style={{ padding: "14px 16px", fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary }}>
+                streaming
+                <span style={{ color: C.scan, animation: "blink 1s step-start infinite" }}>_</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Center stage: Video + Arc ── */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+          {/* Video player */}
+          <div style={{ flex: "0 0 52%", padding: "12px", overflow: "hidden" }}>
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              controls
+              style={{
+                width: "100%",
+                height: "100%",
+                background: "#000",
+                objectFit: "contain",
+                display: "block",
+              }}
+              onTimeUpdate={(e) => setCurrentTime((e.target as HTMLVideoElement).currentTime)}
+              onLoadedMetadata={(e) => setDuration((e.target as HTMLVideoElement).duration)}
+            />
+          </div>
+
+          {/* Activation strip */}
+          <div
+            style={{
+              flexShrink: 0,
+              padding: "6px 16px 8px",
+              borderTop: `1px solid ${C.borderHair}`,
+              borderBottom: `1px solid ${C.borderHair}`,
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            <pre
+              style={{
+                fontFamily: FONT_MONO,
+                fontSize: "9px",
+                lineHeight: "1.0",
+                color: C.textTertiary,
+                margin: 0,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+              }}
+            >
+              {activationStrip}
+            </pre>
+            {/* Playhead line */}
+            {duration > 0 && (
+              <div
                 style={{
-                  borderColor: "rgba(0,212,255,0.06)",
-                  background: isActive ? "rgba(0,212,255,0.06)" : "transparent",
-                  borderTop: isActive ? "1px solid #00d4ff" : "1px solid transparent",
-                  minWidth: "80px",
-                  maxWidth: "120px",
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: `calc(16px + ${progressPct * 0.88}%)`,
+                  width: "1px",
+                  background: C.signal,
+                  opacity: 0.7,
+                  pointerEvents: "none",
+                }}
+              />
+            )}
+          </div>
+
+          {/* Emotional Arc */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+            <div style={{ marginBottom: "14px" }}>
+              <span
+                style={{
+                  fontFamily: FONT_SERIF,
+                  fontStyle: "italic",
+                  fontSize: "22px",
+                  color: C.textPrimary,
                 }}
               >
-                <span
-                  className="tabular-nums text-xs font-medium mb-0.5"
-                  style={{ color: isActive ? "#00d4ff" : "#334155" }}
-                >
-                  {formatTime(ins.timestamp_sec)}
-                </span>
-                <span
-                  className="truncate"
-                  style={{ color: isActive ? "#67e8f9" : "#1e4060", fontSize: "9px" }}
-                >
-                  {ins.top_regions[0]}
-                </span>
-              </button>
-            );
-          })}
-          {isStreaming && (
-            <div className="flex-shrink-0 flex items-center px-3 py-2">
-              <div className="w-1 h-1 rounded-full bg-cyan-500" style={{ animation: "insight-pulse 0.8s ease-in-out infinite" }} />
+                Emotional Arc
+              </span>
             </div>
-          )}
+
+            <div style={{ borderTop: `1px solid ${C.borderHair}`, paddingTop: "16px" }}>
+              {insights.length === 0 && isStreaming && (
+                <span style={{ fontFamily: FONT_MONO, fontSize: "12px", color: C.textTertiary }}>
+                  synthesizing<span style={{ color: C.scan, animation: "blink 1s step-start infinite" }}>_</span>
+                </span>
+              )}
+
+              {insights.map((ins, i) => (
+                <div
+                  key={i}
+                  style={{
+                    marginBottom: "20px",
+                    animation: "fade-in 0.35s ease-out both",
+                    animationDelay: `${i * 60}ms`,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "16px",
+                      marginBottom: "6px",
+                      fontFamily: FONT_MONO,
+                      fontSize: "10px",
+                      color: C.textTertiary,
+                    }}
+                  >
+                    <span>{fmt(ins.timestamp_sec)}</span>
+                    <span>{ins.top_regions[0]}</span>
+                    {ins.tags.slice(0, 2).map((tag) => (
+                      <span
+                        key={tag}
+                        style={{
+                          border: `1px solid ${C.borderHair}`,
+                          padding: "0 5px",
+                          color: C.textTertiary,
+                        }}
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                  <p
+                    style={{
+                      fontFamily: FONT_BODY,
+                      fontSize: "14px",
+                      lineHeight: "1.65",
+                      color: C.textSecondary,
+                      margin: 0,
+                    }}
+                  >
+                    {ins.insight}
+                  </p>
+                  {i < insights.length - 1 && (
+                    <div style={{ marginTop: "20px", borderBottom: `1px solid ${C.borderHair}` }} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
+
+        {/* ── Right rail: Inspector ── */}
+        <div
+          style={{
+            width: "220px",
+            flexShrink: 0,
+            borderLeft: `1px solid ${C.borderHair}`,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "10px 16px",
+              borderBottom: `1px solid ${C.borderHair}`,
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ fontFamily: FONT_MONO, fontSize: "10px", color: C.textTertiary, letterSpacing: "0.08em" }}>
+              INSPECTOR
+            </span>
+          </div>
+
+          <div
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              padding: "24px 20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "24px",
+            }}
+          >
+            {/* Scorecard number */}
+            <div>
+              <div
+                style={{
+                  fontFamily: FONT_MONO,
+                  fontSize: "10px",
+                  color: C.textTertiary,
+                  letterSpacing: "0.08em",
+                  marginBottom: "8px",
+                }}
+              >
+                ATTENTION
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: "4px", lineHeight: 1 }}>
+                <span
+                  style={{
+                    fontFamily: FONT_SERIF,
+                    fontSize: "88px",
+                    fontWeight: 400,
+                    color: C.textPrimary,
+                    lineHeight: 1,
+                    textShadow: `0 0 24px rgba(242, 240, 234, 0.22)`,
+                  }}
+                >
+                  {attentionScore}
+                </span>
+                <span
+                  style={{
+                    fontFamily: FONT_MONO,
+                    fontSize: "14px",
+                    color: C.textTertiary,
+                    paddingBottom: "10px",
+                  }}
+                >
+                  /100
+                </span>
+              </div>
+            </div>
+
+            {/* Key-value pairs */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {[
+                { label: "PEAK",     value: fmt(peakTs?.timestamp_sec ?? 0), color: C.peak },
+                { label: "DROP",     value: fmt(dropTs?.timestamp_sec ?? 0), color: C.warn },
+                { label: "DURATION", value: fmt(duration),                   color: C.textSecondary },
+                { label: "INSIGHTS", value: String(insights.length),          color: C.textSecondary },
+                ...(tribeStep
+                  ? [{
+                      label: "ACTIVE ROI",
+                      value: tribeStep.rois[0]?.name?.split(" ").slice(-1)[0] ?? "—",
+                      color: C.textSecondary,
+                    }]
+                  : []),
+              ].map(({ label, value, color }) => (
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span style={{ fontFamily: FONT_MONO, fontSize: "10px", color: C.textTertiary }}>
+                    {label}
+                  </span>
+                  <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color }}>
+                    {value}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Recommendation (italic serif pull-quote) */}
+            <div style={{ borderTop: `1px solid ${C.borderHair}`, paddingTop: "16px" }}>
+              <div
+                style={{
+                  fontFamily: FONT_MONO,
+                  fontSize: "10px",
+                  color: C.textTertiary,
+                  marginBottom: "10px",
+                }}
+              >
+                ── recommended
+              </div>
+              <p
+                style={{
+                  fontFamily: FONT_SERIF,
+                  fontStyle: "italic",
+                  fontSize: "13px",
+                  color: C.textSecondary,
+                  lineHeight: 1.65,
+                  margin: 0,
+                }}
+              >
+                {activeInsight
+                  ? activeInsight.insight.length > 130
+                    ? activeInsight.insight.slice(0, 130) + "..."
+                    : activeInsight.insight
+                  : "Play the video to see region-specific analysis."}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Status bar with video progress */}
+      <div
+        style={{
+          height: "32px",
+          background: C.bgSurface,
+          borderTop: `1px solid ${C.borderHair}`,
+          display: "flex",
+          alignItems: "center",
+          padding: "0 20px",
+          gap: "12px",
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary, whiteSpace: "nowrap" }}>
+          ─ {fmt(currentTime)} / {fmt(duration)}
+        </span>
+
+        {/* Progress bar / clickable scrubber */}
+        <div
+          style={{
+            flex: 1,
+            height: "2px",
+            background: C.bgInset,
+            cursor: "pointer",
+            position: "relative",
+          }}
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            seekTo(((e.clientX - rect.left) / rect.width) * duration);
+          }}
+        >
+          <div
+            style={{
+              width: `${progressPct}%`,
+              height: "100%",
+              background: C.signal,
+              transition: "width 0.1s linear",
+            }}
+          />
+          {duration > 0 &&
+            insights.map((ins, i) => (
+              <div
+                key={i}
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: `${(ins.timestamp_sec / duration) * 100}%`,
+                  transform: "translate(-50%, -50%)",
+                  width: "3px",
+                  height: "3px",
+                  borderRadius: "50%",
+                  background: i === activeIdx ? C.signal : C.textTertiary,
+                }}
+              />
+            ))}
+        </div>
+
+        <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary, whiteSpace: "nowrap" }}>
+          {activeInsight ? "peak engagement" : "idle"}
+        </span>
+
+        <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary, whiteSpace: "nowrap" }}>
+          {isStreaming ? (
+            <>
+              claude streaming{" "}
+              <span style={{ color: C.scan, animation: "blink 1s step-start infinite" }}>●</span>
+            </>
+          ) : (
+            "claude ✓"
+          )}{" "}
+          ─
+        </span>
       </div>
     </div>
   );
@@ -676,13 +1083,17 @@ function ResultsView({
 
 export default function Home() {
   const [appState, setAppState] = useState<AppState>("upload");
-  const [videoUrl, setVideoUrl] = useState<string>("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [fileName, setFileName] = useState("");
   const [insights, setInsights] = useState<Insight[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
 
+  // Generate ASCII brain frames once on mount (fast: ~10ms)
+  const brainFrames = useMemo(() => generateBrainFrames(TOTAL_FRAMES), []);
+
   const handleFile = useCallback((file: File) => {
-    const url = URL.createObjectURL(file);
-    setVideoUrl(url);
+    setVideoUrl(URL.createObjectURL(file));
+    setFileName(file.name);
     setAppState("loading");
   }, []);
 
@@ -700,42 +1111,38 @@ export default function Home() {
 
       if (!res.body) throw new Error("No response body");
 
-      const reader = res.body.getReader();
+      const reader  = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = "";
+      let buffer    = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
 
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed) continue;
-          if (trimmed.startsWith("__ERROR__:")) {
-            console.error("Synthesis error:", trimmed.slice(10));
-            continue;
-          }
+          if (trimmed.startsWith("__ERROR__:")) { console.error(trimmed.slice(10)); continue; }
           try {
             const parsed = JSON.parse(trimmed) as Insight;
             setInsights((prev) => [...prev, parsed]);
           } catch {
-            // Partial or malformed line — skip
+            /* partial line — ignore */
           }
         }
       }
 
-      // Flush remaining buffer
       if (buffer.trim()) {
-        try {
-          const parsed = JSON.parse(buffer.trim()) as Insight;
-          setInsights((prev) => [...prev, parsed]);
-        } catch {
-          // ignore
+        const trimmed = buffer.trim();
+        if (!trimmed.startsWith("__ERROR__:")) {
+          try {
+            const parsed = JSON.parse(trimmed) as Insight;
+            setInsights((prev) => [...prev, parsed]);
+          } catch { /* ignore */ }
         }
       }
     } catch (err) {
@@ -747,13 +1154,14 @@ export default function Home() {
 
   return (
     <>
-      {appState === "upload" && <UploadView onFile={handleFile} />}
-      {appState === "loading" && <LoadingView onComplete={runSynthesis} />}
+      {appState === "upload"  && <UploadView  onFile={handleFile} frames={brainFrames} />}
+      {appState === "loading" && <LoadingView onComplete={runSynthesis} frames={brainFrames} />}
       {appState === "results" && (
         <ResultsView
           videoUrl={videoUrl}
           insights={insights}
           isStreaming={isStreaming}
+          fileName={fileName}
         />
       )}
     </>
