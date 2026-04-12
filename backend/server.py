@@ -1,7 +1,18 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { TribeTimestep } from "@/lib/types";
+from flask import Flask, Response, stream_with_context, request
+from flask_cors import CORS
+import anthropic
+import json
+import os
 
-const SYSTEM_PROMPT = `You are a neuroscience-powered creative analyst. You receive cortical activation predictions from TRIBE v2 — a model that predicts fMRI-style brain responses to video stimuli — and translate them into plain-language insights for marketing teams, brand managers, and content creators who have no neuroscience background.
+app = Flask(__name__)
+CORS(app)
+
+# Load precomputed TRIBE v2 data
+DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "tribe_1984.json")
+with open(DATA_PATH) as f:
+    TRIBE_DATA = json.load(f)
+
+SYSTEM_PROMPT = """You are a neuroscience-powered creative analyst. You receive cortical activation predictions from TRIBE v2 — a model that predicts fMRI-style brain responses to video stimuli — and translate them into plain-language insights for marketing teams, brand managers, and content creators who have no neuroscience background.
 
 Your output has three layers:
 
@@ -50,50 +61,34 @@ Output schema:
       "flag": null | "PEAK" | "WARNING"
     }
   ]
-}`;
+}"""
 
-export async function POST(req: Request) {
-  const { tribeData }: { tribeData: TribeTimestep[] } = await req.json();
 
-  const client = new Anthropic();
+@app.route("/analyze", methods=["POST"])
+def analyze():
+    client = anthropic.Anthropic()
 
-  const userMessage = `Analyze these TRIBE v2 cortical activation arrays and return your full three-layer analysis as valid JSON.
+    user_message = f"""Analyze these TRIBE v2 cortical activation arrays and return your full three-layer analysis as valid JSON.
 
-${JSON.stringify(tribeData, null, 2)}`;
+{json.dumps(TRIBE_DATA, indent=2)}"""
 
-  const encoder = new TextEncoder();
+    def generate():
+        with client.messages.stream(
+            model="claude-sonnet-4-20250514",
+            max_tokens=8192,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_message}],
+        ) as stream:
+            for text in stream.text_stream:
+                yield text
 
-  const readable = new ReadableStream({
-    async start(controller) {
-      try {
-        const stream = client.messages.stream({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 8192,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: "user", content: userMessage }],
-        });
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/plain",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
-        for await (const chunk of stream) {
-          if (
-            chunk.type === "content_block_delta" &&
-            chunk.delta.type === "text_delta"
-          ) {
-            controller.enqueue(encoder.encode(chunk.delta.text));
-          }
-        }
-      } catch (err) {
-        const error = err instanceof Error ? err.message : "Unknown error";
-        controller.enqueue(encoder.encode(`\n__ERROR__:${error}`));
-      } finally {
-        controller.close();
-      }
-    },
-  });
 
-  return new Response(readable, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-cache",
-    },
-  });
-}
+if __name__ == "__main__":
+    print("NeuroScan backend running on http://localhost:5000")
+    app.run(port=5000, debug=True)
