@@ -1085,7 +1085,7 @@ function ResultsView({
                 </div>
               }
             >
-              <BrainViewer currentTime={currentTime} duration={duration} />
+              <BrainViewer currentTime={currentTime} duration={duration} tribeData={tribeData as TribeTimestep[]} />
             </Suspense>
           </div>
         </div>
