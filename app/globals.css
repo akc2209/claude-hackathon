@@ -76,3 +76,32 @@ body {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
+
+/* ─── Scorecard Cards ────────────────────────────────────────────────────── */
+
+.scorecard-card {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(0, 212, 255, 0.08);
+}
+
+/* ─── Timeline Cards ─────────────────────────────────────────────────────── */
+
+.timeline-card:hover {
+  background: rgba(0, 212, 255, 0.04) !important;
+  border-color: rgba(0, 212, 255, 0.2) !important;
+}
+
+/* ─── Flag Badges ────────────────────────────────────────────────────────── */
+
+.flag-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  padding: 1px 8px;
+  border-radius: 9999px;
+}

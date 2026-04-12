@@ -1,7 +1,29 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { TribeTimestep } from "@/lib/types";
+import { readFileSync } from "fs";
+import { join } from "path";
 
-const BRAIN_REGIONS_REFERENCE = `
+// Load env manually as fallback
+function getApiKey(): string {
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
+  try {
+    const envFile = readFileSync(join(process.cwd(), ".env.local"), "utf-8");
+    const match = envFile.match(/ANTHROPIC_API_KEY=(.+)/);
+    if (match) return match[1].trim();
+  } catch {}
+  throw new Error("ANTHROPIC_API_KEY not found");
+}
+
+const SYSTEM_PROMPT = `You are a neuroscience-powered creative analyst. You receive cortical activation predictions from TRIBE v2 — a model that predicts fMRI-style brain responses to video stimuli — and translate them into plain-language insights for marketing teams, brand managers, and content creators who have no neuroscience background.
+
+Your output has three layers:
+
+1. SCORECARD: A summary for performance marketers. Include an overall attention score (0–100), the timestamp of peak engagement, the timestamp of the biggest drop-off, and one specific recommended edit in plain English.
+
+2. EMOTIONAL ARC: A 3-paragraph narrative for creative directors. Describe what the video does to a viewer's brain from open to close — what's working, where momentum is lost, and whether the ending lands. No jargon. Write like a strategist debriefing a creative team, not a scientist writing a paper.
+
+3. TIMESTEP TIMELINE: A moment-by-moment breakdown for content creators. For each timestep include: an attention score (0–100), a block bar visualization (█ filled, ░ empty, 12 blocks total scaled to score), a short title, a 2–3 sentence plain-English explanation of what the brain is doing and why it matters for the content, and a short emotional feeling label. Flag peak moments with "PEAK" and warning moments with "WARNING".
+
 Brain Region Reference:
 - Inferotemporal cortex: Object recognition, face processing, visual memory
 - Fusiform gyrus: Face recognition, word recognition, color processing
@@ -13,25 +35,49 @@ Brain Region Reference:
 - Superior temporal sulcus: Biological motion, social cues, audiovisual integration
 - Posterior parietal cortex: Spatial attention, visuospatial processing, action planning
 - Anterior cingulate cortex: Conflict monitoring, error detection, emotional regulation
-`;
 
-const SYSTEM_PROMPT = `You are a computational neuroscience interpreter. You receive cortical activation predictions from TRIBE v2 — a model that predicts fMRI-style brain responses to video stimuli. Your task: for each timestep, identify which brain regions show highest activation and synthesize a 1–2 sentence human-readable insight about what cognitive or emotional process is likely occurring.
+Rules:
+- Never use anatomical region names in the scorecard, arc, or timeline. Translate all neuroscience into viewer behavior and emotion.
+- Do not overclaim. Say "the brain is processing X" not "the viewer feels X."
+- Write for someone who makes ads, not someone who studies brains.
+- Output only valid JSON, no markdown, no preamble.
 
-Use precise but accessible language. Do not overclaim causation — use hedged language such as "associated with" and "consistent with".
-
-${BRAIN_REGIONS_REFERENCE}
-
-CRITICAL OUTPUT FORMAT: Output each insight as a separate JSON object on its own line (NDJSON format). No array brackets. No commas between objects. One complete JSON object per line. No markdown. No preamble. No trailing text.
-
-Each line must be a valid JSON object matching this schema exactly:
-{"timestamp_sec": number, "top_regions": [string], "insight": string, "tags": [string]}`;
+Output schema:
+{
+  "scorecard": {
+    "attention_score": number (0-100),
+    "peak_moment_sec": number,
+    "dropoff_moment_sec": number,
+    "recommended_edit": "string — one specific, actionable suggestion in plain English"
+  },
+  "emotional_arc": {
+    "opening": "string — what happens in the first few seconds neurologically",
+    "middle": "string — where momentum builds or is lost",
+    "closing": "string — whether the ending and CTA land at full or reduced power"
+  },
+  "timeline": [
+    {
+      "timestamp_sec": number,
+      "attention_score": number (0-100),
+      "bar": "string — 12 blocks using █ and ░ scaled to score",
+      "title": "string — short label",
+      "insight": "string — 2-3 sentences, plain English, no jargon",
+      "feeling": "string — short emotional label",
+      "flag": "PEAK" | "WARNING" | null
+    }
+  ]
+}`;
 
 export async function POST(req: Request) {
   const { tribeData }: { tribeData: TribeTimestep[] } = await req.json();
 
-  const client = new Anthropic();
+  const client = new Anthropic({
+    apiKey: getApiKey(),
+  });
 
-  const userMessage = `Analyze these TRIBE v2 cortical activation arrays and generate one insight per timestep. Output as NDJSON — one JSON object per line.
+  const userMessage = `Here is the TRIBE v2 cortical activation data for this video.
+Each timestep shows the top 10 brain regions by activation magnitude.
+Analyze this and return your full three-layer output as valid JSON.
 
 ${JSON.stringify(tribeData, null, 2)}`;
 
@@ -42,7 +88,7 @@ ${JSON.stringify(tribeData, null, 2)}`;
       try {
         const stream = client.messages.stream({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 8192,
+          max_tokens: 4000,
           system: SYSTEM_PROMPT,
           messages: [{ role: "user", content: userMessage }],
         });

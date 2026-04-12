@@ -1,0 +1,317 @@
+[
+  {
+    "timestamp_sec": 0,
+    "rois": [
+      {
+        "name": "orbitofrontal cortex",
+        "activation": 0.144
+      },
+      {
+        "name": "fusiform gyrus",
+        "activation": 0.129
+      },
+      {
+        "name": "inferotemporal cortex",
+        "activation": 0.124
+      },
+      {
+        "name": "prefrontal cortex",
+        "activation": 0.124
+      },
+      {
+        "name": "V1",
+        "activation": 0.119
+      },
+      {
+        "name": "V2",
+        "activation": 0.118
+      },
+      {
+        "name": "V4",
+        "activation": 0.117
+      },
+      {
+        "name": "posterior parietal cortex",
+        "activation": 0.114
+      },
+      {
+        "name": "superior temporal sulcus",
+        "activation": 0.099
+      },
+      {
+        "name": "anterior cingulate cortex",
+        "activation": 0.098
+      }
+    ]
+  },
+  {
+    "timestamp_sec": 1,
+    "rois": [
+      {
+        "name": "orbitofrontal cortex",
+        "activation": 0.181
+      },
+      {
+        "name": "inferotemporal cortex",
+        "activation": 0.151
+      },
+      {
+        "name": "fusiform gyrus",
+        "activation": 0.149
+      },
+      {
+        "name": "prefrontal cortex",
+        "activation": 0.144
+      },
+      {
+        "name": "V1",
+        "activation": 0.14
+      },
+      {
+        "name": "V2",
+        "activation": 0.139
+      },
+      {
+        "name": "V4",
+        "activation": 0.138
+      },
+      {
+        "name": "posterior parietal cortex",
+        "activation": 0.13
+      },
+      {
+        "name": "anterior cingulate cortex",
+        "activation": 0.114
+      },
+      {
+        "name": "superior temporal sulcus",
+        "activation": 0.112
+      }
+    ]
+  },
+  {
+    "timestamp_sec": 2,
+    "rois": [
+      {
+        "name": "orbitofrontal cortex",
+        "activation": 0.188
+      },
+      {
+        "name": "inferotemporal cortex",
+        "activation": 0.155
+      },
+      {
+        "name": "fusiform gyrus",
+        "activation": 0.152
+      },
+      {
+        "name": "prefrontal cortex",
+        "activation": 0.148
+      },
+      {
+        "name": "V1",
+        "activation": 0.144
+      },
+      {
+        "name": "V2",
+        "activation": 0.142
+      },
+      {
+        "name": "V4",
+        "activation": 0.141
+      },
+      {
+        "name": "posterior parietal cortex",
+        "activation": 0.133
+      },
+      {
+        "name": "anterior cingulate cortex",
+        "activation": 0.12
+      },
+      {
+        "name": "superior temporal sulcus",
+        "activation": 0.115
+      }
+    ]
+  },
+  {
+    "timestamp_sec": 3,
+    "rois": [
+      {
+        "name": "orbitofrontal cortex",
+        "activation": 0.169
+      },
+      {
+        "name": "inferotemporal cortex",
+        "activation": 0.14
+      },
+      {
+        "name": "fusiform gyrus",
+        "activation": 0.136
+      },
+      {
+        "name": "prefrontal cortex",
+        "activation": 0.132
+      },
+      {
+        "name": "V1",
+        "activation": 0.13
+      },
+      {
+        "name": "V2",
+        "activation": 0.129
+      },
+      {
+        "name": "V4",
+        "activation": 0.127
+      },
+      {
+        "name": "posterior parietal cortex",
+        "activation": 0.12
+      },
+      {
+        "name": "anterior cingulate cortex",
+        "activation": 0.112
+      },
+      {
+        "name": "superior temporal sulcus",
+        "activation": 0.105
+      }
+    ]
+  },
+  {
+    "timestamp_sec": 4,
+    "rois": [
+      {
+        "name": "orbitofrontal cortex",
+        "activation": 0.151
+      },
+      {
+        "name": "inferotemporal cortex",
+        "activation": 0.128
+      },
+      {
+        "name": "fusiform gyrus",
+        "activation": 0.125
+      },
+      {
+        "name": "V1",
+        "activation": 0.12
+      },
+      {
+        "name": "prefrontal cortex",
+        "activation": 0.12
+      },
+      {
+        "name": "V2",
+        "activation": 0.119
+      },
+      {
+        "name": "V4",
+        "activation": 0.118
+      },
+      {
+        "name": "posterior parietal cortex",
+        "activation": 0.112
+      },
+      {
+        "name": "anterior cingulate cortex",
+        "activation": 0.108
+      },
+      {
+        "name": "superior temporal sulcus",
+        "activation": 0.1
+      }
+    ]
+  },
+  {
+    "timestamp_sec": 5,
+    "rois": [
+      {
+        "name": "orbitofrontal cortex",
+        "activation": 0.137
+      },
+      {
+        "name": "inferotemporal cortex",
+        "activation": 0.115
+      },
+      {
+        "name": "fusiform gyrus",
+        "activation": 0.11
+      },
+      {
+        "name": "prefrontal cortex",
+        "activation": 0.107
+      },
+      {
+        "name": "V1",
+        "activation": 0.106
+      },
+      {
+        "name": "V2",
+        "activation": 0.106
+      },
+      {
+        "name": "V4",
+        "activation": 0.103
+      },
+      {
+        "name": "posterior parietal cortex",
+        "activation": 0.097
+      },
+      {
+        "name": "anterior cingulate cortex",
+        "activation": 0.096
+      },
+      {
+        "name": "superior temporal sulcus",
+        "activation": 0.087
+      }
+    ]
+  },
+  {
+    "timestamp_sec": 6,
+    "rois": [
+      {
+        "name": "orbitofrontal cortex",
+        "activation": 0.105
+      },
+      {
+        "name": "fusiform gyrus",
+        "activation": 0.098
+      },
+      {
+        "name": "inferotemporal cortex",
+        "activation": 0.093
+      },
+      {
+        "name": "prefrontal cortex",
+        "activation": 0.091
+      },
+      {
+        "name": "V1",
+        "activation": 0.09
+      },
+      {
+        "name": "V2",
+        "activation": 0.09
+      },
+      {
+        "name": "posterior parietal cortex",
+        "activation": 0.089
+      },
+      {
+        "name": "V4",
+        "activation": 0.088
+      },
+      {
+        "name": "superior temporal sulcus",
+        "activation": 0.079
+      },
+      {
+        "name": "anterior cingulate cortex",
+        "activation": 0.078
+      }
+    ]
+  }
+]

@@ -8,9 +8,31 @@ export interface TribeTimestep {
   rois: ROI[];
 }
 
-export interface Insight {
+export interface Scorecard {
+  attention_score: number;
+  peak_moment_sec: number;
+  dropoff_moment_sec: number;
+  recommended_edit: string;
+}
+
+export interface EmotionalArc {
+  opening: string;
+  middle: string;
+  closing: string;
+}
+
+export interface TimelineEntry {
   timestamp_sec: number;
-  top_regions: string[];
+  attention_score: number;
+  bar: string;
+  title: string;
   insight: string;
-  tags: string[];
+  feeling: string;
+  flag: "PEAK" | "WARNING" | null;
+}
+
+export interface AnalysisResult {
+  scorecard: Scorecard;
+  emotional_arc: EmotionalArc;
+  timeline: TimelineEntry[];
 }
