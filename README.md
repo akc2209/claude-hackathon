@@ -1,6 +1,6 @@
 # Grey Matter
 
-Predicting how your brain responds to content-- more accurately than actual brain scans.
+Predicting how your brain responds to content — more accurately than actual brain scans.
 
 ## Background
 
