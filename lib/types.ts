@@ -8,8 +8,6 @@ export interface TribeTimestep {
   rois: ROI[];
 }
 
-// ─── New 3-layer output ───────────────────────────────────────────────────────
-
 export interface Scorecard {
   attention_score: number;
   peak_moment_sec: number;
