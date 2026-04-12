@@ -22,7 +22,7 @@ Second-by-second breakdown with engagement scores, labeled moments (spikes, coas
 ## Screenshots
 
 ### Upload
-![Landing page](public/screenshots/landing.png)
+![Landing page](public/screenshots/landingv2.png)
 
 ### Scorecard
 ![Scorecard view](public/screenshots/scoring.png)
