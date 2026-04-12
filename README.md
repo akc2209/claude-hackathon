@@ -21,6 +21,17 @@ A narrative of the emotional journey — where the viewer locks in, where moment
 **Layer 3 — Timestep Timeline** (for content creators)
 Second-by-second breakdown with engagement scores, labeled moments (spikes, coasting, drop-offs, recoveries), and plain-language feeling tags at each timestep. Answers: *which exact moment worked, and why?*
 
+## Screenshots
+
+### Upload
+![Landing page](public/screenshots/landing.png)
+
+### Scorecard
+![Scorecard view](public/screenshots/scoring.png)
+
+### Timeline
+![Timeline view](public/screenshots/timestamp.png)
+
 ## Tech Stack
 
 - **Language:** TypeScript
