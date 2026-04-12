@@ -4,7 +4,9 @@ Externalized brain activity for advertising intelligence.
 
 ## Background
 
-Ad metrics like clicks, watch time, and scroll depth tell you *what* happened but never *why* — a viewer can watch an entire ad while their brain checked out at second 12. Meta's [TRIBE V2](https://github.com/meta-llama/Models-for-brains) predicts brain activation from video content frame by frame, but outputs dense numerical arrays across 15+ brain regions that require neuroscience expertise to interpret.
+Ad metrics like clicks, watch time, and scroll depth tell you *what* happened but never *why* — a viewer can watch an entire ad while their brain checked out at second 12. Meta's [TRIBE V2](https://aidemos.atmeta.com/tribev2) predicts brain activation from video content frame by frame, but outputs dense numerical arrays across 15+ brain regions that require neuroscience expertise to interpret.
+
+> **Note:** TRIBE V2 processing is compute-intensive — a 5-second video takes approximately 20 minutes to run through the model.
 
 ## What Grey Matter Does
 
@@ -23,11 +25,13 @@ Second-by-second breakdown with engagement scores, labeled moments (spikes, coas
 
 ```bash
 npm install
-npm run dev
 ```
 
 ## Tech Stack
 
-- [Next.js](https://nextjs.org)
-- [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)
-- [Meta TRIBE V2](https://github.com/meta-llama/Models-for-brains)
+- **Language:** TypeScript
+- **Framework:** Next.js (React)
+- **Styling:** Tailwind CSS
+- **AI:** Anthropic Claude API (Claude Sonnet 4), Claude Agent SDK
+- **Neuroscience Model:** [Meta TRIBE V2](https://aidemos.atmeta.com/tribev2)
+- **Deployment:** Vercel
