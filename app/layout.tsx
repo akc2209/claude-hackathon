@@ -22,7 +22,7 @@ const bodyFont = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "NeuroScan — Cortical Activation Modeling",
+  title: "Grey Matter — Cortical Activation Modeling",
   description: "See what a video does to a human brain, second by second.",
 };
 

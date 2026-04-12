@@ -77,6 +77,11 @@ body {
   to   { transform: rotate(360deg); }
 }
 
+@keyframes insight-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
 /* ─── Scorecard Cards ────────────────────────────────────────────────────── */
 
 .scorecard-card {
@@ -84,15 +89,15 @@ body {
   flex-direction: column;
   padding: 14px 16px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(0, 212, 255, 0.08);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-hairline);
 }
 
 /* ─── Timeline Cards ─────────────────────────────────────────────────────── */
 
 .timeline-card:hover {
-  background: rgba(0, 212, 255, 0.04) !important;
-  border-color: rgba(0, 212, 255, 0.2) !important;
+  background: rgba(232, 227, 212, 0.04) !important;
+  border-color: var(--border-active) !important;
 }
 
 /* ─── Flag Badges ────────────────────────────────────────────────────────── */
