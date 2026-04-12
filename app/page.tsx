@@ -1,41 +1,211 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
 import { AnalysisResult, TimelineEntry, TribeTimestep } from "@/lib/types";
 import tribeData from "@/data/tribe_output.json";
 
 const BrainViewer = lazy(() => import("./BrainViewer"));
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Design tokens ────────────────────────────────────────────────────────────
 
-const BRAIN_REGIONS = [
-  "inferotemporal cortex",
-  "orbitofrontal cortex",
-  "V1",
-  "V2",
-  "V4",
-  "prefrontal cortex",
-  "fusiform gyrus",
-  "superior temporal sulcus",
-  "posterior parietal cortex",
-  "anterior cingulate cortex",
-];
+const C = {
+  bgVoid: "#0A0A0B",
+  bgSurface: "#131316",
+  bgInset: "#1C1C20",
+  borderHair: "#24242A",
+  borderActive: "#3A3A44",
+  textPrimary: "#F2F0EA",
+  textSecondary: "#8A8A92",
+  textTertiary: "#4E4E56",
+  signal: "#E8E3D4",
+  peak: "#B8E0C2",
+  warn: "#E8B5A0",
+  scan: "#7A9BB8",
+} as const;
+
+const FONT_SERIF = "var(--font-serif), 'Georgia', serif";
+const FONT_MONO = "var(--font-mono), 'JetBrains Mono', 'SF Mono', monospace";
+const FONT_BODY = "var(--font-body), 'Inter', sans-serif";
+
+// ─── ASCII brain ──────────────────────────────────────────────────────────────
+
+const ASCII_CHARS = " .·:-=+*#%@";
+const BRAIN_COLS = 54;
+const BRAIN_ROWS = 22;
+const TOTAL_FRAMES = 60;
 
 const LOADING_STEPS = [
-  { label: "Extracting video frames", duration: 2000 },
-  { label: "Encoding audio stream", duration: 2200 },
-  { label: "Running visual cortex model", duration: 2500 },
-  { label: "Mapping brain region activity", duration: 2300 },
-  { label: "Rendering neural timeline", duration: 2000 },
-  { label: "Preparing your insights", duration: 1500 },
+  { label: "extracting video frames", duration: 1200 },
+  { label: "encoding audio stream", duration: 1500 },
+  { label: "running visual cortex model", duration: 2500 },
+  { label: "mapping brain region activity", duration: 2000 },
+  { label: "rendering neural timeline", duration: 1800 },
+  { label: "preparing your insights", duration: 1000 },
+] as const;
+
+const POETIC_MESSAGES = [
+  "listening to the occipital lobe...",
+  "asking the reward system what it saw...",
+  "measuring the space between intention and response...",
+  "tracing the path from retina to recognition...",
+  "watching the fusiform gyrus recognize a face...",
+  "counting the milliseconds of unconscious attention...",
+  "mapping where the brain stopped caring...",
+  "reading the signature of surprise...",
+  "following the cascade from visual cortex to meaning...",
+  "noting where the narrative broke through...",
+  "observing the prefrontal cortex weigh what it felt...",
+  "cataloguing moments the brain chose to remember...",
+  "finding the gap between what was shown and what was felt...",
+  "decoding the emotional residue of motion...",
+  "listening for the quiet moments between peaks...",
+  "tracing the arc of arousal through time...",
+  "watching attention rise and fall like breath...",
+  "reading the delta between expectation and event...",
 ];
 
 type AppState = "upload" | "loading" | "results";
 type ResultTab = "scorecard" | "arc" | "timeline";
 
+function generateBrainFrames(totalFrames: number): string[] {
+  const frames: string[] = [];
+
+  function frontZ(
+    sx: number,
+    sy: number,
+    cx: number,
+    a: number,
+    b: number,
+    c: number,
+    cosA: number,
+    sinA: number
+  ): number {
+    const u = sx * cosA - cx;
+    const w0 = -sx * sinA;
+    const A = (sinA * sinA) / (a * a) + (cosA * cosA) / (c * c);
+    const B = 2 * ((u * sinA) / (a * a) + (w0 * cosA) / (c * c));
+    const Cv = (u * u) / (a * a) + (sy * sy) / (b * b) + (w0 * w0) / (c * c) - 1;
+    const disc = B * B - 4 * A * Cv;
+    if (disc < 0) return -Infinity;
+    return (-B + Math.sqrt(disc)) / (2 * A);
+  }
+
+  for (let f = 0; f < totalFrames; f++) {
+    const angle = (f / totalFrames) * Math.PI * 2;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+    const lines: string[] = [];
+    for (let r = 0; r < BRAIN_ROWS; r++) {
+      let line = "";
+      for (let c = 0; c < BRAIN_COLS; c++) {
+        const sx = (c / (BRAIN_COLS - 1)) * 2 - 1;
+        const sy = ((r / (BRAIN_ROWS - 1)) * 2 - 1) * 1.7;
+        const z1 = frontZ(sx, sy, -0.26, 0.54, 0.7, 0.76, cosA, sinA);
+        const z2 = frontZ(sx, sy, 0.26, 0.54, 0.7, 0.76, cosA, sinA);
+        const z = Math.max(isFinite(z1) ? z1 : -Infinity, isFinite(z2) ? z2 : -Infinity);
+        if (isFinite(z) && z > -2 && z < 2) {
+          const wx = sx * cosA + z * sinA;
+          const wz = -sx * sinA + z * cosA;
+          const wy = sy;
+          const gyri =
+            0.09 * Math.sin(wx * 9 + wz * 4) * Math.cos(wy * 6) +
+            0.04 * Math.sin(wx * 5 - wy * 8);
+          const lum = Math.max(0, Math.min(1, (z + 1) / 2 + gyri));
+          const idx = Math.max(
+            1,
+            Math.min(ASCII_CHARS.length - 1, Math.round(lum * (ASCII_CHARS.length - 2)) + 1)
+          );
+          line += ASCII_CHARS[idx];
+        } else {
+          line += " ";
+        }
+      }
+      lines.push(line);
+    }
+    frames.push(lines.join("\n"));
+  }
+  return frames;
+}
+
+function ASCIIBrain({
+  frames,
+  fps = 10,
+  pulse = false,
+  fontSize = "9px",
+}: {
+  frames: string[];
+  fps?: number;
+  pulse?: boolean;
+  fontSize?: string;
+}) {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setIdx((i) => (i + 1) % frames.length), 1000 / fps);
+    return () => clearInterval(t);
+  }, [frames, fps]);
+  return (
+    <pre
+      style={{
+        fontFamily: FONT_MONO,
+        fontSize,
+        lineHeight: "1.0",
+        letterSpacing: "0px",
+        color: pulse ? C.scan : C.textTertiary,
+        margin: 0,
+        padding: 0,
+        userSelect: "none",
+        transition: "color 400ms linear",
+      }}
+    >
+      {frames[idx]}
+    </pre>
+  );
+}
+
+function StatusBar({ left, right }: { left: string; right: string }) {
+  return (
+    <div
+      style={{
+        height: "32px",
+        background: C.bgSurface,
+        borderTop: `1px solid ${C.borderHair}`,
+        display: "flex",
+        alignItems: "center",
+        padding: "0 20px",
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary, flex: 1 }}>
+        {left}
+      </span>
+      <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary }}>{right}</span>
+    </div>
+  );
+}
+
+function TopBar({ left, right }: { left: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        height: "36px",
+        background: C.bgSurface,
+        borderBottom: `1px solid ${C.borderHair}`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 20px",
+        flexShrink: 0,
+      }}
+    >
+      <div style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textSecondary }}>{left}</div>
+      <div style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary }}>{right ?? "⚙"}</div>
+    </div>
+  );
+}
+
 // ─── Upload View ──────────────────────────────────────────────────────────────
 
-function UploadView({ onFile }: { onFile: (file: File) => void }) {
+function UploadView({ onFile, frames }: { onFile: (file: File) => void; frames: string[] }) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -58,251 +228,249 @@ function UploadView({ onFile }: { onFile: (file: File) => void }) {
   );
 
   return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center px-6"
-      style={{
-        background:
-          "radial-gradient(ellipse at 50% 40%, #0a1628 0%, #07080f 70%)",
-      }}
-    >
-      {/* Header */}
-      <div className="mb-12 text-center">
-        <div className="flex items-center justify-center gap-3 mb-3">
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="16" r="14" stroke="#00d4ff" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.6" />
-            <circle cx="16" cy="16" r="8" stroke="#00d4ff" strokeWidth="1" opacity="0.4" />
-            <circle cx="16" cy="16" r="3" fill="#00d4ff" opacity="0.9" />
-            <line x1="16" y1="2" x2="16" y2="8" stroke="#00d4ff" strokeWidth="1" opacity="0.5" />
-            <line x1="16" y1="24" x2="16" y2="30" stroke="#00d4ff" strokeWidth="1" opacity="0.5" />
-            <line x1="2" y1="16" x2="8" y2="16" stroke="#00d4ff" strokeWidth="1" opacity="0.5" />
-            <line x1="24" y1="16" x2="30" y2="16" stroke="#00d4ff" strokeWidth="1" opacity="0.5" />
-          </svg>
-          <h1 className="text-3xl font-light tracking-[0.2em] text-cyan-100">
-            NEUROSCAN
-          </h1>
-        </div>
-        <p className="text-sm text-slate-500 tracking-widest uppercase">
-          Cortical Activation Modeling
-        </p>
-        <p
-          className="mt-3 text-slate-400 text-sm max-w-sm mx-auto leading-relaxed"
-          style={{ fontFamily: "system-ui, sans-serif" }}
-        >
-          See what a video does to a human brain — second by second.
-        </p>
-      </div>
-
-      {/* Drop Zone */}
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: C.bgVoid }}>
+      <TopBar left="GREY MATTER  /  v0.1" right="[config]  ⚙" />
       <div
-        className={`relative w-full max-w-lg border rounded-lg p-12 text-center cursor-pointer transition-all duration-300`}
         style={{
-          borderColor: dragging ? "#00d4ff" : "rgba(0,212,255,0.2)",
-          background: dragging
-            ? "rgba(0,212,255,0.05)"
-            : "rgba(255,255,255,0.02)",
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "36px",
+          padding: "40px 20px",
         }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
       >
-        <input
-          ref={inputRef}
-          type="file"
-          accept="video/*,.mov,.mp4"
-          className="hidden"
-          onChange={handleChange}
-        />
-        <div className="flex flex-col items-center gap-4">
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center"
-            style={{
-              background: "rgba(0,212,255,0.06)",
-              border: "1px solid rgba(0,212,255,0.2)",
-            }}
-          >
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" strokeWidth="1.5">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-cyan-200 text-sm tracking-wide">
-              Drop video file here
-            </p>
-            <p className="text-slate-600 text-xs mt-1">
-              .mov · .mp4 · any video format
-            </p>
-          </div>
-          <span className="text-xs text-slate-600 tracking-widest uppercase mt-2">
-            or click to browse
+        <div style={{ opacity: 0.35, pointerEvents: "none" }}>
+          <ASCIIBrain frames={frames} fps={2} fontSize="9px" />
+        </div>
+        <h1
+          style={{
+            fontFamily: FONT_SERIF,
+            fontSize: "clamp(36px, 5vw, 64px)",
+            fontWeight: 400,
+            color: C.textPrimary,
+            letterSpacing: "-0.02em",
+            lineHeight: 1.1,
+            margin: 0,
+            textAlign: "center",
+            textShadow: "0 0 18px rgba(242, 240, 234, 0.35)",
+          }}
+        >
+          What does this video
+          <br />
+          do to a brain?
+        </h1>
+        <div
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={handleDrop}
+          style={{
+            width: "480px",
+            maxWidth: "90vw",
+            height: "220px",
+            background: C.bgInset,
+            border: `1px ${dragging ? "solid" : "dashed"} ${dragging ? C.signal : C.borderHair}`,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "10px",
+            cursor: "pointer",
+            transition: "border 200ms, background 200ms",
+            ...(dragging ? { background: "rgba(232,227,212,0.025)" } : {}),
+          }}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            accept="video/*,.mov,.mp4"
+            style={{ display: "none" }}
+            onChange={handleChange}
+          />
+          <span style={{ fontFamily: FONT_MONO, fontSize: "13px", color: C.textSecondary }}>
+            drop .mov here
+          </span>
+          <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary }}>
+            or click to select
           </span>
         </div>
+        <p
+          style={{
+            fontFamily: FONT_MONO,
+            fontSize: "10px",
+            color: C.textTertiary,
+            letterSpacing: "0.06em",
+            margin: 0,
+            marginTop: "-12px",
+          }}
+        >
+          TRIBE v2 · Schaefer-Destrieux · claude
+        </p>
       </div>
-
-      <p className="mt-8 text-xs text-slate-700 tracking-wide">
-        TRIBE v2 · Schaefer-Destrieux atlas · claude-sonnet
-      </p>
+      <StatusBar left="─ status: idle" right="model: tribe v2 ─" />
     </div>
   );
 }
 
 // ─── Loading View ─────────────────────────────────────────────────────────────
 
-function LoadingView({ onComplete }: { onComplete: () => void }) {
+function LoadingView({ onComplete, frames }: { onComplete: () => void; frames: string[] }) {
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
-  const [currentRegion, setCurrentRegion] = useState(BRAIN_REGIONS[0]);
-  const [regionKey, setRegionKey] = useState(0);
+  const [stepTimes, setStepTimes] = useState<Record<number, string>>({});
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [poeticMsg, setPoeticMsg] = useState(POETIC_MESSAGES[0]);
+  const [poeticKey, setPoeticKey] = useState(0);
+  const [pulse, setPulse] = useState(false);
   const hasCompleted = useRef(false);
+  const startTime = useRef(Date.now());
+
+  const fmtMs = (ms: number) => {
+    const totalSec = Math.floor(ms / 1000);
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    const milli = ms % 1000;
+    return `${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(milli).padStart(3, "0")}`;
+  };
 
   useEffect(() => {
-    let elapsed = 0;
-    const timers: ReturnType<typeof setTimeout>[] = [];
+    const id = setInterval(() => setElapsedMs(Date.now() - startTime.current), 50);
+    return () => clearInterval(id);
+  }, []);
 
+  useEffect(() => {
+    let acc = 0;
+    const timers: ReturnType<typeof setTimeout>[] = [];
     LOADING_STEPS.forEach((step, i) => {
       const t = setTimeout(() => {
+        const ms = Date.now() - startTime.current;
+        setStepTimes((prev) => ({ ...prev, [i]: fmtMs(ms) }));
         setCompletedSteps((prev) => [...prev, i]);
-      }, elapsed + step.duration);
+        setPulse(true);
+        setTimeout(() => setPulse(false), 400);
+      }, acc + step.duration);
       timers.push(t);
-      elapsed += step.duration;
+      acc += step.duration;
     });
-
-    const doneTimer = setTimeout(() => {
+    const done = setTimeout(() => {
       if (!hasCompleted.current) {
         hasCompleted.current = true;
         onComplete();
       }
-    }, elapsed + 800);
-    timers.push(doneTimer);
-
+    }, acc + 800);
+    timers.push(done);
     return () => timers.forEach(clearTimeout);
-  }, [onComplete]);
+  }, [onComplete]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    let idx = 0;
-    const cycle = () => {
-      idx = (idx + 1) % BRAIN_REGIONS.length;
-      setCurrentRegion(BRAIN_REGIONS[idx]);
-      setRegionKey((k) => k + 1);
-    };
-    const interval = setInterval(cycle, 1300);
-    return () => clearInterval(interval);
+    let idx = 1;
+    const id = setInterval(() => {
+      setPoeticMsg(POETIC_MESSAGES[idx % POETIC_MESSAGES.length]);
+      setPoeticKey((k) => k + 1);
+      idx++;
+    }, 3200);
+    return () => clearInterval(id);
   }, []);
 
-  const totalDuration = LOADING_STEPS.reduce((s, x) => s + x.duration, 0);
-  const elapsed = completedSteps.reduce(
-    (s, i) => s + LOADING_STEPS[i].duration,
-    0
-  );
-  const pct = Math.min(96, Math.round((elapsed / totalDuration) * 100));
-
   return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center px-6 scanlines relative"
-      style={{
-        background:
-          "radial-gradient(ellipse at 50% 30%, #0a1628 0%, #07080f 70%)",
-      }}
-    >
-      <div className="mb-10 text-center">
-        <h1 className="text-xl font-light tracking-[0.3em] text-cyan-300 opacity-80">
-          NEUROSCAN
-        </h1>
-      </div>
-
-      <div className="w-full max-w-md">
-        {/* Region cycling */}
-        <div className="mb-6 text-center h-6">
-          <span
-            key={regionKey}
-            className="text-xs tracking-widest uppercase"
-            style={{
-              color: "#00d4ff",
-              opacity: 0,
-              display: "inline-block",
-              animation: "insight-appear 0.4s ease-out forwards",
-            }}
-          >
-            ◈ {currentRegion}
-          </span>
-        </div>
-
-        {/* Progress bar */}
-        <div className="mb-2 flex justify-between items-center">
-          <span className="text-xs text-slate-500 tracking-wider">
-            CORTICAL MAPPING
-          </span>
-          <span className="text-xs tabular-nums" style={{ color: "#00d4ff" }}>
-            {pct}%
-          </span>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: C.bgVoid }}>
+      <TopBar left="GREY MATTER  /  v0.1" />
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <div
+          style={{
+            width: "60%",
+            borderRight: `1px solid ${C.borderHair}`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <ASCIIBrain frames={frames} fps={10} pulse={pulse} fontSize="10px" />
         </div>
         <div
-          className="w-full h-1 rounded-full mb-8"
-          style={{ background: "rgba(0,212,255,0.08)" }}
+          style={{
+            width: "40%",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            padding: "48px 52px",
+            gap: "40px",
+          }}
         >
-          <div
-            className="h-full rounded-full transition-all duration-700"
-            style={{
-              width: `${pct}%`,
-              background: "linear-gradient(90deg, #0e4a6e, #00d4ff)",
-              boxShadow: "0 0 8px rgba(0,212,255,0.4)",
-            }}
-          />
-        </div>
-
-        {/* Checklist */}
-        <div className="space-y-3">
-          {LOADING_STEPS.map((step, i) => {
-            const done = completedSteps.includes(i);
-            const active =
-              !done &&
-              (i === 0 || completedSteps.includes(i - 1)) &&
-              !completedSteps.includes(i);
-            return (
-              <div
-                key={i}
-                className="flex items-start gap-3 transition-opacity duration-500"
-                style={{ opacity: done || active ? 1 : 0.25 }}
-              >
-                <div className="mt-0.5 w-4 h-4 flex items-center justify-center flex-shrink-0">
-                  {done ? (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <circle cx="7" cy="7" r="6" stroke="#00d4ff" strokeWidth="1" fill="rgba(0,212,255,0.08)" />
-                      <path d="M4 7l2 2 4-4" stroke="#00d4ff" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  ) : active ? (
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{
-                        background: "#00d4ff",
-                        boxShadow: "0 0 6px #00d4ff",
-                        animation: "insight-pulse 1s ease-in-out infinite",
-                      }}
-                    />
-                  ) : (
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ background: "rgba(0,212,255,0.15)" }}
-                    />
-                  )}
-                </div>
-                <span
-                  className="text-xs leading-relaxed"
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {LOADING_STEPS.map((step, i) => {
+              const done = completedSteps.includes(i);
+              const active = !done && (i === 0 || completedSteps.includes(i - 1));
+              return (
+                <div
+                  key={i}
                   style={{
-                    color: done ? "#67e8f9" : active ? "#e2e8f0" : "#475569",
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: "10px",
+                    opacity: done || active ? 1 : 0.3,
+                    transition: "opacity 300ms",
                   }}
                 >
-                  {step.label}
-                </span>
-              </div>
-            );
-          })}
+                  <span
+                    style={{
+                      fontFamily: FONT_MONO,
+                      fontSize: "12px",
+                      color: done ? C.peak : active ? C.textPrimary : C.textTertiary,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {done ? "[✓]" : active ? "[▸]" : "[ ]"}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: FONT_MONO,
+                      fontSize: "12px",
+                      color: done ? C.textSecondary : active ? C.textPrimary : C.textTertiary,
+                      flex: 1,
+                    }}
+                  >
+                    {step.label}
+                    {active && (
+                      <span style={{ color: C.scan, animation: "blink 1s step-start infinite" }}>_</span>
+                    )}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: FONT_MONO,
+                      fontSize: "11px",
+                      color: C.textTertiary,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {done ? stepTimes[i] ?? "—" : active ? fmtMs(elapsedMs) : "—"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ height: "22px", overflow: "hidden" }}>
+            <span
+              key={poeticKey}
+              style={{
+                fontFamily: FONT_SERIF,
+                fontStyle: "italic",
+                fontSize: "14px",
+                color: C.textSecondary,
+                display: "inline-block",
+                animation: "fade-cycle 3.2s ease-in-out forwards",
+              }}
+            >
+              {poeticMsg}
+            </span>
+          </div>
         </div>
       </div>
+      <StatusBar left="─ demo_video.mov" right={`elapsed: ${fmtMs(elapsedMs)}  model: tribe v2 ─`} />
     </div>
   );
 }
@@ -312,36 +480,59 @@ function LoadingView({ onComplete }: { onComplete: () => void }) {
 function BrainActivityBars({ tribeTimestep }: { tribeTimestep: (typeof tribeData)[0] | null }) {
   if (!tribeTimestep) {
     return (
-      <div className="flex items-center justify-center h-full text-slate-700 text-xs tracking-widest">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100%",
+          fontFamily: FONT_MONO,
+          fontSize: "10px",
+          color: C.textTertiary,
+          letterSpacing: "0.12em",
+        }}
+      >
         PLAY VIDEO TO ACTIVATE
       </div>
     );
   }
   const max = tribeTimestep.rois[0]?.activation ?? 1;
   return (
-    <div className="flex flex-col gap-1.5 w-full">
+    <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%" }}>
       {tribeTimestep.rois.slice(0, 8).map((roi) => (
-        <div key={roi.name} className="flex items-center gap-2">
+        <div key={roi.name} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span
-            className="text-right flex-shrink-0"
-            style={{ color: "#475569", fontSize: "9px", width: "140px" }}
+            style={{
+              fontFamily: FONT_MONO,
+              textAlign: "right",
+              flexShrink: 0,
+              color: C.textTertiary,
+              fontSize: "9px",
+              width: "140px",
+            }}
           >
             {roi.name}
           </span>
-          <div className="flex-1 h-1.5 rounded-full" style={{ background: "rgba(0,212,255,0.08)" }}>
+          <div style={{ flex: 1, height: "6px", borderRadius: "2px", background: C.bgInset }}>
             <div
-              className="h-full rounded-full transition-all duration-500"
               style={{
+                height: "100%",
+                borderRadius: "2px",
                 width: `${(roi.activation / max) * 100}%`,
-                background: `linear-gradient(90deg, #0e4a6e, #00d4ff)`,
-                opacity: 0.4 + (roi.activation / max) * 0.6,
-                boxShadow: roi.activation > 0.7 * max ? "0 0 4px rgba(0,212,255,0.4)" : "none",
+                background: C.scan,
+                opacity: 0.35 + (roi.activation / max) * 0.65,
+                transition: "width 500ms ease, opacity 500ms ease",
               }}
             />
           </div>
           <span
-            className="tabular-nums flex-shrink-0"
-            style={{ color: "#1e4a6e", fontSize: "9px", width: "32px" }}
+            style={{
+              fontFamily: FONT_MONO,
+              flexShrink: 0,
+              color: C.textTertiary,
+              fontSize: "9px",
+              width: "40px",
+            }}
           >
             {roi.activation.toFixed(3)}
           </span>
@@ -361,50 +552,102 @@ function ScorecardView({ scorecard }: { scorecard: AnalysisResult["scorecard"] }
   };
 
   return (
-    <div className="space-y-4 insight-appear">
-      {/* Attention Score */}
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px", animation: "fade-in 0.45s ease-out" }}>
       <div className="scorecard-card">
-        <div className="flex items-baseline justify-between">
-          <span className="text-xs text-slate-500 tracking-widest uppercase">Overall Attention</span>
-          <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-light" style={{ color: "#00d4ff" }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+          <span
+            style={{
+              fontFamily: FONT_MONO,
+              fontSize: "10px",
+              color: C.textTertiary,
+              letterSpacing: "0.1em",
+            }}
+          >
+            OVERALL ATTENTION
+          </span>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "4px" }}>
+            <span
+              style={{
+                fontFamily: FONT_SERIF,
+                fontSize: "36px",
+                fontWeight: 400,
+                color: C.textPrimary,
+                lineHeight: 1,
+              }}
+            >
               {scorecard.attention_score}
             </span>
-            <span className="text-sm text-slate-600">/ 100</span>
+            <span style={{ fontFamily: FONT_MONO, fontSize: "12px", color: C.textTertiary }}>/ 100</span>
           </div>
         </div>
-        <div className="mt-2 h-1.5 rounded-full" style={{ background: "rgba(0,212,255,0.08)" }}>
+        <div style={{ marginTop: "10px", height: "6px", borderRadius: "2px", background: C.bgVoid }}>
           <div
-            className="h-full rounded-full"
             style={{
+              height: "100%",
+              borderRadius: "2px",
               width: `${scorecard.attention_score}%`,
-              background: "linear-gradient(90deg, #0e4a6e, #00d4ff)",
-              boxShadow: "0 0 8px rgba(0,212,255,0.3)",
+              background: C.signal,
+              opacity: 0.85,
             }}
           />
         </div>
       </div>
 
-      {/* Peak + Drop-off */}
-      <div className="grid grid-cols-2 gap-3">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
         <div className="scorecard-card">
-          <span className="text-xs text-slate-500 tracking-widest uppercase">Peak Engagement</span>
-          <span className="text-lg mt-1" style={{ color: "#34d399" }}>
+          <span
+            style={{
+              fontFamily: FONT_MONO,
+              fontSize: "10px",
+              color: C.textTertiary,
+              letterSpacing: "0.1em",
+            }}
+          >
+            PEAK ENGAGEMENT
+          </span>
+          <span style={{ fontFamily: FONT_MONO, fontSize: "16px", color: C.peak, marginTop: "6px", display: "block" }}>
             {formatTime(scorecard.peak_moment_sec)}
           </span>
         </div>
         <div className="scorecard-card">
-          <span className="text-xs text-slate-500 tracking-widest uppercase">Biggest Drop-off</span>
-          <span className="text-lg mt-1" style={{ color: "#f87171" }}>
+          <span
+            style={{
+              fontFamily: FONT_MONO,
+              fontSize: "10px",
+              color: C.textTertiary,
+              letterSpacing: "0.1em",
+            }}
+          >
+            BIGGEST DROP-OFF
+          </span>
+          <span style={{ fontFamily: FONT_MONO, fontSize: "16px", color: C.warn, marginTop: "6px", display: "block" }}>
             {formatTime(scorecard.dropoff_moment_sec)}
           </span>
         </div>
       </div>
 
-      {/* Recommended Edit */}
       <div className="scorecard-card">
-        <span className="text-xs text-slate-500 tracking-widest uppercase mb-2">Recommended Edit</span>
-        <p className="text-sm leading-relaxed" style={{ color: "#94a3b8", fontFamily: "system-ui, sans-serif" }}>
+        <span
+          style={{
+            fontFamily: FONT_MONO,
+            fontSize: "10px",
+            color: C.textTertiary,
+            letterSpacing: "0.1em",
+            marginBottom: "8px",
+            display: "block",
+          }}
+        >
+          RECOMMENDED EDIT
+        </span>
+        <p
+          style={{
+            fontFamily: FONT_BODY,
+            fontSize: "14px",
+            lineHeight: 1.65,
+            color: C.textSecondary,
+            margin: 0,
+          }}
+        >
           {scorecard.recommended_edit}
         </p>
       </div>
@@ -415,23 +658,41 @@ function ScorecardView({ scorecard }: { scorecard: AnalysisResult["scorecard"] }
 // ─── Emotional Arc View ──────────────────────────────────────────────────────
 
 function EmotionalArcView({ arc }: { arc: AnalysisResult["emotional_arc"] }) {
+  const sections = [
+    { label: "Opening", text: arc.opening, color: C.peak },
+    { label: "Middle", text: arc.middle, color: C.signal },
+    { label: "Closing", text: arc.closing, color: C.warn },
+  ];
   return (
-    <div className="space-y-5 insight-appear">
-      {[
-        { label: "Opening", text: arc.opening, color: "#34d399" },
-        { label: "Middle", text: arc.middle, color: "#fbbf24" },
-        { label: "Closing", text: arc.closing, color: "#f87171" },
-      ].map((section) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: "22px", animation: "fade-in 0.45s ease-out" }}>
+      <div style={{ marginBottom: "4px" }}>
+        <span style={{ fontFamily: FONT_SERIF, fontStyle: "italic", fontSize: "22px", color: C.textPrimary }}>
+          Emotional arc
+        </span>
+      </div>
+      {sections.map((section) => (
         <div key={section.label}>
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-1.5 h-1.5 rounded-full" style={{ background: section.color }} />
-            <span className="text-xs tracking-widest uppercase" style={{ color: section.color }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+            <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: section.color }} />
+            <span
+              style={{
+                fontFamily: FONT_MONO,
+                fontSize: "10px",
+                letterSpacing: "0.12em",
+                color: section.color,
+              }}
+            >
               {section.label}
             </span>
           </div>
           <p
-            className="text-sm leading-relaxed"
-            style={{ color: "#94a3b8", fontFamily: "system-ui, sans-serif" }}
+            style={{
+              fontFamily: FONT_BODY,
+              fontSize: "14px",
+              lineHeight: 1.65,
+              color: C.textSecondary,
+              margin: 0,
+            }}
           >
             {section.text}
           </p>
@@ -469,7 +730,17 @@ function TimelineView({
   };
 
   return (
-    <div ref={scrollRef} className="space-y-2 overflow-y-auto flex-1 pr-1">
+    <div
+      ref={scrollRef}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        overflowY: "auto",
+        flex: 1,
+        paddingRight: "4px",
+      }}
+    >
       {timeline.map((entry, i) => {
         const isActive = i === activeIdx;
         return (
@@ -477,23 +748,35 @@ function TimelineView({
             key={i}
             data-timeline-card=""
             onClick={() => onSeek(entry.timestamp_sec)}
-            className="timeline-card cursor-pointer transition-all duration-200"
+            className="timeline-card"
             style={{
-              background: isActive ? "rgba(0,212,255,0.06)" : "rgba(255,255,255,0.02)",
-              borderColor: isActive ? "rgba(0,212,255,0.3)" : "rgba(0,212,255,0.08)",
-              borderWidth: "1px",
-              borderStyle: "solid",
+              cursor: "pointer",
+              transition: "background 200ms, border-color 200ms",
+              background: isActive ? C.bgSurface : C.bgInset,
+              border: `1px solid ${isActive ? C.borderActive : C.borderHair}`,
               borderRadius: "6px",
               padding: "10px 12px",
             }}
           >
-            {/* Header row */}
-            <div className="flex items-center justify-between mb-1.5">
-              <div className="flex items-center gap-2">
-                <span className="tabular-nums text-xs font-medium" style={{ color: isActive ? "#00d4ff" : "#64748b" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span
+                  style={{
+                    fontFamily: FONT_MONO,
+                    fontSize: "11px",
+                    fontWeight: 500,
+                    color: isActive ? C.signal : C.textTertiary,
+                  }}
+                >
                   {formatTime(entry.timestamp_sec)}
                 </span>
-                <span className="text-xs" style={{ color: isActive ? "#e2e8f0" : "#94a3b8" }}>
+                <span
+                  style={{
+                    fontFamily: FONT_BODY,
+                    fontSize: "12px",
+                    color: isActive ? C.textPrimary : C.textSecondary,
+                  }}
+                >
                   {entry.title}
                 </span>
               </div>
@@ -501,39 +784,53 @@ function TimelineView({
                 <span
                   className="flag-badge"
                   style={{
-                    background: entry.flag === "PEAK" ? "rgba(52,211,153,0.1)" : "rgba(248,113,113,0.1)",
-                    color: entry.flag === "PEAK" ? "#34d399" : "#f87171",
-                    border: `1px solid ${entry.flag === "PEAK" ? "rgba(52,211,153,0.3)" : "rgba(248,113,113,0.3)"}`,
+                    fontFamily: FONT_MONO,
+                    background:
+                      entry.flag === "PEAK" ? "rgba(184, 224, 194, 0.12)" : "rgba(232, 181, 160, 0.12)",
+                    color: entry.flag === "PEAK" ? C.peak : C.warn,
+                    border: `1px solid ${entry.flag === "PEAK" ? "rgba(184,224,194,0.35)" : "rgba(232,181,160,0.35)"}`,
                   }}
                 >
                   {entry.flag}
                 </span>
               )}
             </div>
-
-            {/* Bar + score */}
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="text-xs tracking-wider" style={{ color: isActive ? "#00d4ff" : "#1e4a6e", letterSpacing: "1px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+              <span
+                style={{
+                  fontFamily: FONT_MONO,
+                  fontSize: "10px",
+                  letterSpacing: "0.06em",
+                  color: isActive ? C.scan : C.textTertiary,
+                }}
+              >
                 {entry.bar}
               </span>
-              <span className="tabular-nums text-xs" style={{ color: "#64748b" }}>
+              <span style={{ fontFamily: FONT_MONO, fontSize: "10px", color: C.textTertiary }}>
                 {entry.attention_score}/100
               </span>
             </div>
-
-            {/* Insight text */}
-            <p className="text-xs leading-relaxed mb-1" style={{ color: "#94a3b8", fontFamily: "system-ui, sans-serif" }}>
+            <p
+              style={{
+                fontFamily: FONT_BODY,
+                fontSize: "12px",
+                lineHeight: 1.55,
+                color: C.textSecondary,
+                margin: "0 0 6px 0",
+              }}
+            >
               {entry.insight}
             </p>
-
-            {/* Feeling label */}
             <span
-              className="inline-block text-xs px-2 py-0.5 rounded-full"
               style={{
-                background: "rgba(0,212,255,0.06)",
-                border: "1px solid rgba(0,212,255,0.15)",
-                color: "#67e8f9",
+                display: "inline-block",
+                fontFamily: FONT_MONO,
                 fontSize: "9px",
+                padding: "2px 8px",
+                borderRadius: "999px",
+                background: C.bgVoid,
+                border: `1px solid ${C.borderHair}`,
+                color: C.scan,
               }}
             >
               {entry.feeling}
@@ -561,13 +858,12 @@ function ResultsView({
   const [duration, setDuration] = useState(0);
   const [activeTab, setActiveTab] = useState<ResultTab>("scorecard");
 
-  // Find active timeline entry based on video time
-  const activeIdx = analysis?.timeline.reduce((best, entry, i) => {
-    if (entry.timestamp_sec <= currentTime) return i;
-    return best;
-  }, -1) ?? -1;
+  const activeIdx =
+    analysis?.timeline.reduce((best, entry, i) => {
+      if (entry.timestamp_sec <= currentTime) return i;
+      return best;
+    }, -1) ?? -1;
 
-  // Find matching TRIBE timestep
   const tribeTimestep = (tribeData as (typeof tribeData)[number][]).reduce(
     (best: (typeof tribeData)[0] | null, t) => {
       if (t.timestamp_sec <= currentTime) return t;
@@ -593,72 +889,69 @@ function ResultsView({
 
   const tabs: { key: ResultTab; label: string }[] = [
     { key: "scorecard", label: "Scorecard" },
-    { key: "arc", label: "Emotional Arc" },
+    { key: "arc", label: "Emotional arc" },
     { key: "timeline", label: "Timeline" },
   ];
 
-  return (
-    <div className="flex flex-col" style={{ height: "100vh", background: "#07080f", overflow: "hidden" }}>
-      {/* Top bar */}
-      <div
-        className="flex items-center justify-between px-6 py-3 border-b flex-shrink-0"
-        style={{ borderColor: "rgba(0,212,255,0.08)" }}
-      >
-        <div className="flex items-center gap-2">
-          <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="16" r="14" stroke="#00d4ff" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.6" />
-            <circle cx="16" cy="16" r="3" fill="#00d4ff" opacity="0.9" />
-          </svg>
-          <span className="text-sm tracking-[0.2em] text-cyan-300 font-light">NEUROSCAN</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {isStreaming && (
-            <>
-              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" style={{ animation: "insight-pulse 1s ease-in-out infinite" }} />
-              <span className="text-xs text-slate-500 tracking-wider">SYNTHESIZING</span>
-            </>
-          )}
-          {!isStreaming && analysis && (
-            <>
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              <span className="text-xs text-slate-500 tracking-wider">ANALYSIS COMPLETE</span>
-            </>
-          )}
-        </div>
-      </div>
+  const statusRight =
+    isStreaming && !analysis ? (
+      <span style={{ color: C.scan }}>
+        claude streaming<span style={{ animation: "blink 1s step-start infinite" }}> ●</span>
+      </span>
+    ) : analysis ? (
+      <span style={{ color: C.peak }}>analysis complete ✓</span>
+    ) : (
+      <span style={{ color: C.textTertiary }}>—</span>
+    );
 
-      {/* Main content */}
-      <div className="flex flex-1 overflow-hidden" style={{ minHeight: 0 }}>
-        {/* Left: Video */}
+  return (
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: C.bgVoid, overflow: "hidden" }}>
+      <TopBar left={<>GREY MATTER &nbsp;/&nbsp; demo_video.mov</>} right={statusRight} />
+
+      <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         <div
-          className="flex flex-col p-4 border-r overflow-y-auto"
-          style={{ width: "55%", borderColor: "rgba(0,212,255,0.08)" }}
+          style={{
+            width: "55%",
+            flexShrink: 0,
+            display: "flex",
+            flexDirection: "column",
+            padding: "16px",
+            borderRight: `1px solid ${C.borderHair}`,
+            overflowY: "auto",
+          }}
         >
           <video
             ref={videoRef}
             src={videoUrl}
             controls
-            className="w-full rounded-md"
             style={{
+              width: "100%",
               maxHeight: "35vh",
               minHeight: 0,
               background: "#000",
-              border: "1px solid rgba(0,212,255,0.1)",
+              border: `1px solid ${C.borderHair}`,
               objectFit: "contain",
+              display: "block",
             }}
             onTimeUpdate={(e) => setCurrentTime((e.target as HTMLVideoElement).currentTime)}
             onLoadedMetadata={(e) => setDuration((e.target as HTMLVideoElement).duration)}
           />
-
-          {/* 3D Brain Activity */}
-          <div className="mt-3 flex-shrink-0">
-            <p className="text-xs text-slate-500 tracking-widest uppercase mb-2">
-              Cortical Activation Model
+          <div style={{ marginTop: "12px", flexShrink: 0 }}>
+            <p
+              style={{
+                fontFamily: FONT_MONO,
+                fontSize: "10px",
+                color: C.textTertiary,
+                letterSpacing: "0.12em",
+                margin: "0 0 8px 0",
+              }}
+            >
+              CORTICAL ACTIVATION MODEL
             </p>
             <Suspense
               fallback={
-                <div className="flex items-center justify-center" style={{ height: "300px" }}>
-                  <span className="text-xs tracking-widest text-slate-700">LOADING 3D MODEL...</span>
+                <div style={{ height: "300px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ fontFamily: FONT_MONO, fontSize: "10px", letterSpacing: "0.12em", color: C.textTertiary }}>LOADING 3D MODEL...</span>
                 </div>
               }
             >
@@ -667,19 +960,33 @@ function ResultsView({
           </div>
         </div>
 
-        {/* Right: Analysis panels */}
-        <div className="flex flex-col flex-1 overflow-hidden">
-          {/* Tab bar */}
-          <div className="flex border-b flex-shrink-0" style={{ borderColor: "rgba(0,212,255,0.08)" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+          <div
+            style={{
+              display: "flex",
+              borderBottom: `1px solid ${C.borderHair}`,
+              flexShrink: 0,
+              background: C.bgSurface,
+            }}
+          >
             {tabs.map((tab) => (
               <button
                 key={tab.key}
+                type="button"
                 onClick={() => setActiveTab(tab.key)}
-                className="px-4 py-2.5 text-xs tracking-widest uppercase transition-all"
                 style={{
-                  color: activeTab === tab.key ? "#00d4ff" : "#475569",
-                  borderBottom: activeTab === tab.key ? "1px solid #00d4ff" : "1px solid transparent",
-                  background: activeTab === tab.key ? "rgba(0,212,255,0.03)" : "transparent",
+                  fontFamily: FONT_MONO,
+                  fontSize: "10px",
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  padding: "12px 16px",
+                  border: "none",
+                  borderBottom: activeTab === tab.key ? `2px solid ${C.signal}` : "2px solid transparent",
+                  marginBottom: "-1px",
+                  background: activeTab === tab.key ? C.bgInset : "transparent",
+                  color: activeTab === tab.key ? C.textPrimary : C.textTertiary,
+                  cursor: "pointer",
+                  transition: "color 200ms, background 200ms",
                 }}
               >
                 {tab.label}
@@ -687,90 +994,95 @@ function ResultsView({
             ))}
           </div>
 
-          {/* Tab content */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
             {isStreaming && !analysis && (
-              <div className="flex items-center gap-2 text-slate-600">
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", color: C.textTertiary }}>
                 <div
-                  className="w-4 h-4 rounded-full border-2 flex-shrink-0"
-                  style={{ borderColor: "rgba(0,212,255,0.2)", borderTopColor: "#00d4ff", animation: "spin 1s linear infinite" }}
+                  style={{
+                    width: "14px",
+                    height: "14px",
+                    borderRadius: "50%",
+                    border: `2px solid ${C.borderHair}`,
+                    borderTopColor: C.scan,
+                    animation: "spin 1s linear infinite",
+                    flexShrink: 0,
+                  }}
                 />
-                <span className="text-xs tracking-widest">Streaming analysis...</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: "11px", letterSpacing: "0.08em" }}>
+                  Streaming analysis
+                  <span style={{ color: C.scan, animation: "blink 1s step-start infinite" }}>_</span>
+                </span>
               </div>
             )}
 
-            {analysis && activeTab === "scorecard" && (
-              <ScorecardView scorecard={analysis.scorecard} />
-            )}
-            {analysis && activeTab === "arc" && (
-              <EmotionalArcView arc={analysis.emotional_arc} />
-            )}
+            {analysis && activeTab === "scorecard" && <ScorecardView scorecard={analysis.scorecard} />}
+            {analysis && activeTab === "arc" && <EmotionalArcView arc={analysis.emotional_arc} />}
             {analysis && activeTab === "timeline" && (
-              <TimelineView
-                timeline={analysis.timeline}
-                activeIdx={activeIdx}
-                onSeek={seekTo}
-              />
+              <TimelineView timeline={analysis.timeline} activeIdx={activeIdx} onSeek={seekTo} />
             )}
           </div>
         </div>
       </div>
 
-      {/* Bottom: Video progress bar with markers */}
       <div
-        className="flex-shrink-0 px-4 py-2 border-t"
-        style={{ borderColor: "rgba(0,212,255,0.08)" }}
+        style={{
+          flexShrink: 0,
+          padding: "8px 16px",
+          borderTop: `1px solid ${C.borderHair}`,
+          background: C.bgSurface,
+        }}
       >
-        <div className="flex items-center gap-3">
-          <span className="text-xs tabular-nums" style={{ color: "#475569", minWidth: "36px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary, minWidth: "40px" }}>
             {formatTime(currentTime)}
           </span>
           <div
-            className="flex-1 h-1 rounded-full cursor-pointer relative"
-            style={{ background: "rgba(0,212,255,0.1)" }}
+            style={{
+              flex: 1,
+              height: "2px",
+              background: C.bgInset,
+              cursor: "pointer",
+              position: "relative",
+            }}
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
-              const pct = (e.clientX - rect.left) / rect.width;
-              seekTo(pct * duration);
+              seekTo(((e.clientX - rect.left) / rect.width) * duration);
             }}
           >
             <div
-              className="h-full rounded-full pointer-events-none"
               style={{
                 width: `${progressPct}%`,
-                background: "linear-gradient(90deg, #0e4a6e, #00d4ff)",
-                boxShadow: "0 0 6px rgba(0,212,255,0.3)",
+                height: "100%",
+                background: C.signal,
+                transition: "width 0.1s linear",
+                pointerEvents: "none",
               }}
             />
-            {/* Timeline markers */}
-            {duration > 0 && analysis?.timeline.map((entry, i) => (
-              <div
-                key={i}
-                className="absolute top-1/2 -translate-y-1/2 cursor-pointer"
-                style={{
-                  left: `${(entry.timestamp_sec / duration) * 100}%`,
-                  transform: "translate(-50%, -50%)",
-                }}
-                onClick={(e) => { e.stopPropagation(); seekTo(entry.timestamp_sec); }}
-              >
+            {duration > 0 &&
+              analysis?.timeline.map((entry, i) => (
                 <div
-                  className="rounded-full"
+                  key={i}
+                  role="presentation"
                   style={{
-                    width: entry.flag === "PEAK" ? "6px" : entry.flag === "WARNING" ? "6px" : "4px",
-                    height: entry.flag === "PEAK" ? "6px" : entry.flag === "WARNING" ? "6px" : "4px",
-                    background: entry.flag === "PEAK"
-                      ? "#34d399"
-                      : entry.flag === "WARNING"
-                      ? "#f87171"
-                      : i === activeIdx
-                      ? "#00d4ff"
-                      : "rgba(0,212,255,0.4)",
+                    position: "absolute",
+                    top: "50%",
+                    left: `${(entry.timestamp_sec / duration) * 100}%`,
+                    transform: "translate(-50%, -50%)",
+                    width: entry.flag ? "5px" : "4px",
+                    height: entry.flag ? "5px" : "4px",
+                    borderRadius: "50%",
+                    background:
+                      entry.flag === "PEAK" ? C.peak : entry.flag === "WARNING" ? C.warn : i === activeIdx ? C.signal : C.textTertiary,
+                    cursor: "pointer",
+                  }}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    seekTo(entry.timestamp_sec);
                   }}
                 />
-              </div>
-            ))}
+              ))}
           </div>
-          <span className="text-xs tabular-nums" style={{ color: "#475569", minWidth: "36px" }}>
+          <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: C.textTertiary, minWidth: "40px" }}>
             {formatTime(duration)}
           </span>
         </div>
@@ -787,8 +1099,9 @@ export default function Home() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
 
+  const brainFrames = useMemo(() => generateBrainFrames(TOTAL_FRAMES), []);
+
   const handleFile = useCallback((_file: File) => {
-    // Always use the pre-computed demo video regardless of what was uploaded
     setVideoUrl("/demo_video.mp4");
     setAppState("loading");
   }, []);
@@ -817,14 +1130,12 @@ export default function Home() {
         fullText += decoder.decode(value, { stream: true });
       }
 
-      // Check for errors
       if (fullText.includes("__ERROR__:")) {
         const errMsg = fullText.split("__ERROR__:")[1];
         console.error("Synthesis error:", errMsg);
         return;
       }
 
-      // Strip any accidental markdown fences
       const clean = fullText.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean) as AnalysisResult;
       setAnalysis(parsed);
@@ -837,14 +1148,10 @@ export default function Home() {
 
   return (
     <>
-      {appState === "upload" && <UploadView onFile={handleFile} />}
-      {appState === "loading" && <LoadingView onComplete={runSynthesis} />}
+      {appState === "upload" && <UploadView onFile={handleFile} frames={brainFrames} />}
+      {appState === "loading" && <LoadingView onComplete={runSynthesis} frames={brainFrames} />}
       {appState === "results" && (
-        <ResultsView
-          videoUrl={videoUrl}
-          analysis={analysis}
-          isStreaming={isStreaming}
-        />
+        <ResultsView videoUrl={videoUrl} analysis={analysis} isStreaming={isStreaming} />
       )}
     </>
   );
