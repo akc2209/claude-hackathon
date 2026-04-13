@@ -50,75 +50,11 @@ interface BrainData {
   stats: TimestepStats[];
 }
 
-// ─── Generate per-vertex activations from TRIBE ROI data ─────────────────────
-
-function generateActivationsFromTribe(
-  tribeData: TribeTimestep[],
-  numVertices: number
-): { activations: Float32Array[]; activationMin: number; activationMax: number } {
-  const hemiSize = Math.floor(numVertices / 2);
-  let globalMin = Infinity;
-  let globalMax = -Infinity;
-
-  const activations = tribeData.map((timestep) => {
-    const perVertex = new Float32Array(numVertices);
-
-    // Build a lookup from ROI name → activation value
-    const roiMap = new Map<string, number>();
-    for (const roi of timestep.rois) {
-      roiMap.set(roi.name.toLowerCase(), roi.activation);
-    }
-
-    // For each cortical region, find matching TRIBE ROIs and assign to vertices
-    for (const region of CORTICAL_REGIONS) {
-      // Average activation from all matching ROIs for this region
-      let regionActivation = 0;
-      let matchCount = 0;
-      for (const roiName of region.roiNames) {
-        const val = roiMap.get(roiName.toLowerCase());
-        if (val !== undefined) {
-          regionActivation += val;
-          matchCount++;
-        }
-      }
-      if (matchCount > 0) {
-        regionActivation /= matchCount;
-      }
-      // If no matching ROIs, this region stays at 0 (inactive)
-
-      // Assign to vertices in both hemispheres with spatial smoothing noise
-      const lStart = Math.floor(region.startPct * hemiSize);
-      const lEnd = Math.floor(region.endPct * hemiSize);
-      for (let i = lStart; i < lEnd; i++) {
-        // Add slight spatial variation so it doesn't look like flat blocks
-        const edgeDist = Math.min(i - lStart, lEnd - 1 - i) / Math.max(1, (lEnd - lStart) * 0.15);
-        const falloff = Math.min(1, edgeDist); // smooth edges between regions
-        const noise = 0.85 + 0.3 * Math.sin(i * 0.7) * Math.cos(i * 0.3); // deterministic noise
-        const val = regionActivation * falloff * noise;
-        perVertex[i] = val;
-        perVertex[hemiSize + i] = val; // mirror to right hemisphere
-      }
-    }
-
-    // Track global range
-    for (let i = 0; i < numVertices; i++) {
-      if (perVertex[i] < globalMin) globalMin = perVertex[i];
-      if (perVertex[i] > globalMax) globalMax = perVertex[i];
-    }
-
-    return perVertex;
-  });
-
-  return {
-    activations,
-    activationMin: globalMin,
-    activationMax: globalMax,
-  };
-}
-
-function computeTimestepStats(activations: Float32Array): TimestepStats {
+function computeTimestepStats(
+  activations: Float32Array,
+  tribeTimestep?: TribeTimestep
+): TimestepStats {
   const n = activations.length;
-  const hemiSize = Math.floor(n / 2);
   let sum = 0, min = Infinity, max = -Infinity;
   for (let i = 0; i < n; i++) {
     const v = activations[i];
@@ -138,31 +74,19 @@ function computeTimestepStats(activations: Float32Array): TimestepStats {
     if (v < -0.15) suppressed++;
   }
 
-  // Find dominant region by mean activation per region (both hemispheres)
-  let bestRegion = CORTICAL_REGIONS[0];
-  let bestMean = -Infinity;
-  for (const region of CORTICAL_REGIONS) {
-    let regionSum = 0;
-    let regionCount = 0;
-    // Left hemisphere
-    const lStart = Math.floor(region.startPct * hemiSize);
-    const lEnd = Math.floor(region.endPct * hemiSize);
-    for (let i = lStart; i < lEnd; i++) {
-      regionSum += activations[i];
-      regionCount++;
-    }
-    // Right hemisphere
-    const rStart = hemiSize + Math.floor(region.startPct * hemiSize);
-    const rEnd = hemiSize + Math.floor(region.endPct * hemiSize);
-    for (let i = rStart; i < rEnd; i++) {
-      regionSum += activations[i];
-      regionCount++;
-    }
-    const regionMean = regionCount > 0 ? regionSum / regionCount : 0;
-    if (regionMean > bestMean) {
-      bestMean = regionMean;
-      bestRegion = region;
-    }
+  // Use TRIBE ROI data for dominant region (most accurate source)
+  let dominantRegion = "Unknown";
+  let dominantDescription = "";
+  if (tribeTimestep && tribeTimestep.rois.length > 0) {
+    const topRoi = tribeTimestep.rois.reduce((best, roi) =>
+      roi.activation > best.activation ? roi : best
+    );
+    dominantRegion = topRoi.name;
+    // Look up description from cortical regions if available
+    const match = CORTICAL_REGIONS.find((r) =>
+      r.roiNames.some((n) => n.toLowerCase() === topRoi.name.toLowerCase())
+    );
+    dominantDescription = match?.description ?? "";
   }
 
   return {
@@ -172,8 +96,8 @@ function computeTimestepStats(activations: Float32Array): TimestepStats {
     max,
     pctActivated: (activated / n) * 100,
     pctSuppressed: (suppressed / n) * 100,
-    dominantRegion: bestRegion.name,
-    dominantDescription: bestRegion.description,
+    dominantRegion,
+    dominantDescription,
   };
 }
 
@@ -324,16 +248,30 @@ function LoadingOverlay() {
   );
 }
 
+// ─── Exported type for custom activations ────────────────────────────────────
+
+export interface CustomActivations {
+  activations: Float32Array[];
+  meta: {
+    numVertices: number;
+    numTimesteps: number;
+    activationMin: number;
+    activationMax: number;
+  };
+}
+
 // ─── Main Brain Viewer ───────────────────────────────────────────────────────
 
 export default function BrainViewer({
   currentTime,
   duration,
   tribeData,
+  customActivations,
 }: {
   currentTime: number;
   duration: number;
   tribeData?: TribeTimestep[];
+  customActivations?: CustomActivations | null;
 }) {
   const [brainData, setBrainData] = useState<BrainData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -341,37 +279,47 @@ export default function BrainViewer({
   const [manualTimestep, setManualTimestep] = useState(0);
   const animRef = useRef(0);
 
-  // Load mesh geometry + generate activations from TRIBE data
+  // Load mesh geometry + activations (from custom upload or static files)
   useEffect(() => {
     async function load() {
       try {
-        const [metaRes, vertRes, faceRes] = await Promise.all([
-          fetch("/brain_meta.json"),
+        // Always load mesh geometry from static files
+        const [vertRes, faceRes] = await Promise.all([
           fetch("/brain_vertices.bin"),
           fetch("/brain_faces.bin"),
         ]);
 
-        const meta: BrainMeta = await metaRes.json();
         const vertBuf = await vertRes.arrayBuffer();
         const faceBuf = await faceRes.arrayBuffer();
-
         const vertices = new Float32Array(vertBuf);
         const faces = new Uint32Array(faceBuf);
 
         let activations: Float32Array[];
+        let meta: BrainMeta;
 
-        if (tribeData && tribeData.length > 0) {
-          // Generate activations from TRIBE ROI data
-          const generated = generateActivationsFromTribe(tribeData, meta.numVertices);
-          activations = generated.activations;
-          meta.numTimesteps = activations.length;
-          meta.activationMin = generated.activationMin;
-          meta.activationMax = generated.activationMax;
+        if (customActivations) {
+          // Use uploaded activation data
+          activations = customActivations.activations;
+          meta = {
+            numVertices: customActivations.meta.numVertices,
+            numFaces: faces.length / 3,
+            numTimesteps: customActivations.meta.numTimesteps,
+            vertexDims: 3,
+            faceDims: 3,
+            activationMin: customActivations.meta.activationMin,
+            activationMax: customActivations.meta.activationMax,
+          };
         } else {
-          // Fallback: load static binary
-          const actRes = await fetch("/brain_activations.bin");
+          // Load default activations from static files
+          const [metaRes, actRes] = await Promise.all([
+            fetch("/brain_meta.json"),
+            fetch("/brain_activations.bin"),
+          ]);
+
+          meta = await metaRes.json();
           const actBuf = await actRes.arrayBuffer();
           const allActivations = new Float32Array(actBuf);
+
           activations = [];
           for (let t = 0; t < meta.numTimesteps; t++) {
             const offset = t * meta.numVertices;
@@ -379,7 +327,9 @@ export default function BrainViewer({
           }
         }
 
-        const stats = activations.map(computeTimestepStats);
+        const stats = activations.map((act, t) =>
+          computeTimestepStats(act, tribeData?.[t])
+        );
         setBrainData({ vertices, faces, activations, meta, stats });
         setLoading(false);
       } catch (err) {
@@ -387,7 +337,7 @@ export default function BrainViewer({
       }
     }
     load();
-  }, [tribeData]);
+  }, [tribeData, customActivations]);
 
   // Map video time to timestep
   const currentTimestep = useMemo(() => {

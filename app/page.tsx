@@ -985,10 +985,14 @@ function ResultsView({
   videoUrl,
   analysis,
   isStreaming,
+  error,
+  onRetry,
 }: {
   videoUrl: string;
   analysis: AnalysisResult | null;
   isStreaming: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -1153,6 +1157,32 @@ function ResultsView({
               </div>
             )}
 
+            {!isStreaming && !analysis && error && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", color: C.textTertiary }}>
+                <span style={{ fontFamily: FONT_MONO, fontSize: "11px", letterSpacing: "0.08em", color: "#f87171" }}>
+                  Analysis failed: {error.slice(0, 120)}
+                </span>
+                {onRetry && (
+                  <button
+                    onClick={onRetry}
+                    style={{
+                      fontFamily: FONT_MONO,
+                      fontSize: "11px",
+                      letterSpacing: "0.08em",
+                      color: C.scan,
+                      background: "transparent",
+                      border: `1px solid ${C.borderHair}`,
+                      padding: "6px 14px",
+                      cursor: "pointer",
+                      alignSelf: "flex-start",
+                    }}
+                  >
+                    retry
+                  </button>
+                )}
+              </div>
+            )}
+
             {analysis && activeTab === "scorecard" && <ScorecardView scorecard={analysis.scorecard} />}
             {analysis && activeTab === "arc" && <EmotionalArcView arc={analysis.emotional_arc} />}
             {analysis && activeTab === "timeline" && (
@@ -1236,6 +1266,7 @@ export default function Home() {
   const [videoUrl, setVideoUrl] = useState<string>("");
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [synthesisError, setSynthesisError] = useState<string | null>(null);
 
   const brainFrames = useMemo(() => generateBrainFrames(TOTAL_FRAMES), []);
 
@@ -1247,6 +1278,7 @@ export default function Home() {
   const runSynthesis = useCallback(async () => {
     setIsStreaming(true);
     setAnalysis(null);
+    setSynthesisError(null);
     setAppState("results");
 
     try {
@@ -1271,6 +1303,7 @@ export default function Home() {
       if (fullText.includes("__ERROR__:")) {
         const errMsg = fullText.split("__ERROR__:")[1];
         console.error("Synthesis error:", errMsg);
+        setSynthesisError(errMsg);
         return;
       }
 
@@ -1278,7 +1311,9 @@ export default function Home() {
       const parsed = JSON.parse(clean) as AnalysisResult;
       setAnalysis(parsed);
     } catch (err) {
-      console.error("Synthesis failed:", err);
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      console.error("Synthesis failed:", msg);
+      setSynthesisError(msg);
     } finally {
       setIsStreaming(false);
     }
@@ -1289,7 +1324,7 @@ export default function Home() {
       {appState === "upload" && <UploadView onFile={handleFile} frames={brainFrames} />}
       {appState === "loading" && <LoadingView onComplete={runSynthesis} frames={brainFrames} />}
       {appState === "results" && (
-        <ResultsView videoUrl={videoUrl} analysis={analysis} isStreaming={isStreaming} />
+        <ResultsView videoUrl={videoUrl} analysis={analysis} isStreaming={isStreaming} error={synthesisError} onRetry={runSynthesis} />
       )}
     </>
   );
